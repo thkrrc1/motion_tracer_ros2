@@ -16,8 +16,8 @@ TracerTeleop::TracerTeleop() :
 
     // Publisher
     tracer_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("tracer_states", 1);
-    joy_pub_ = this->create_publisher<sensor_msgs::msg::Joy>("/joy", 1);
-    cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 1);
+    joy_pub_ = this->create_publisher<sensor_msgs::msg::Joy>("tracer_joy", 1);
+    cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", 1);
 
     // JointState初期化
     tracer_state_.name.resize(17);
@@ -165,6 +165,8 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
         if (tr_data_[9] > 122 && tr_data_[9] < 132 ) {
             tr_data_[9] = 127;
         }
+
+        //left joy_stick
         joy_.axes[0] = static_cast<float>(127 - tr_data_[6]) / 127;
         joy_.axes[1] = static_cast<float>(127 - tr_data_[7]) / 127;
 

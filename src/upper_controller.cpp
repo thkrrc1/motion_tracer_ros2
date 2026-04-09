@@ -16,7 +16,7 @@ UpperController::UpperController() :
     neck_auto_ = this->get_parameter("neck_auto").as_bool();
 
     tracer_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/tracer_states", 1, std::bind(&UpperController::tracerStateCallback, this, std::placeholders::_1));
-    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("/joy", 1, std::bind(&UpperController::getJoy, this, std::placeholders::_1));
+    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", 1, std::bind(&UpperController::getJoy, this, std::placeholders::_1));
 
     grasp_client_ = this->create_client<aero_controller_msgs::srv::RunScript>("/aero_controller/run_script");
 

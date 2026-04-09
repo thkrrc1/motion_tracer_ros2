@@ -9,6 +9,7 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <sensor_msgs/msg/joy.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 
 #include <trajectory_msgs/msg/joint_trajectory.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
@@ -31,6 +32,9 @@ private:
 
     std::map<std::string, double> joint_angles_;
 
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
+    geometry_msgs::msg::Twist cmd_vel_;
+
     int controller_rate_;     //[Hz]
     double controller_cycle_; //[sec]
     double move_time_;        //[sec]
@@ -45,7 +49,6 @@ private:
     const float knee_lower_limt = -1.57;
 
     float lifter_ratio_;
-    bool update_joints;
 };
 
 #endif

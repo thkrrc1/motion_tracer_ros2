@@ -1,14 +1,16 @@
 #include "motion_tracer_ros2/lower_controller.hpp"
 
 LowerController::LowerController() :
-    Node("lower_controller_node"),lifter_ratio_(0.01),update_joints(true) {
+    Node("lower_controller_node"),lifter_ratio_(0.01) {
     controller_rate_ = 50;
     controller_cycle_ = (1.0/controller_rate_);
     move_time_ = controller_cycle_;
 
-    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("/joy", 1, std::bind(&LowerController::getJoy, this, std::placeholders::_1));
+    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", 1, std::bind(&LowerController::getJoy, this, std::placeholders::_1));
 
     lifter_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("lifter_controller/joint_trajectory", 1);
+
+    cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", 1);
 
     init_follow_joint_trajectory();
 }
@@ -32,8 +34,7 @@ void LowerController::sendJointAngles() {
 }
 
 void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
-    if ((_data->buttons[4] == 1 || _data->buttons[6] == 1) && _data->axes[2] != 0){
-        update_joints = false;
+    if ((_data->buttons[4] == 1 || _data->buttons[6] == 1) && _data->axes[2] != 0) {
         joint_angles_["ankle_joint"] -= (_data->axes[2] * lifter_ratio_);
         joint_angles_["knee_joint"] += (_data->axes[2] * lifter_ratio_);
 
@@ -49,8 +50,26 @@ void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
         }
 
         sendJointAngles();
-    } else {
-        update_joints = true;
+    }
+
+    if ((_data->buttons[4] == 1 || _data->buttons[6] == 1) && (std::abs(_data->axes[0]) > 0.05 || std::abs(_data->axes[1]) > 0.05 || std::abs(_data->axes[3]) > 0.05)) {
+        cmd_vel_.linear.x = 0;
+        cmd_vel_.linear.y = 0;
+        cmd_vel_.linear.z = 0;
+        cmd_vel_.angular.x = 0;
+        cmd_vel_.angular.y = 0;
+        cmd_vel_.angular.z = 0;
+
+        if (_data->axes[1] != 0) {
+            cmd_vel_.linear.x = 0.5 * _data->axes[1];
+        }
+        if (_data->axes[3] != 0) {
+            cmd_vel_.linear.y = 0.5 * _data->axes[0];
+        }
+        if (_data->axes[0] != 0) {
+            cmd_vel_.angular.z = 0.5 * _data->axes[3];
+        }
+        cmd_vel_pub_->publish(cmd_vel_);
     }
 }
 
