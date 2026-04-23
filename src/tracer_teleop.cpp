@@ -31,7 +31,6 @@ TracerTeleop::TracerTeleop() :
     position_.resize(30, 0);
 
     wheel_stop_flag_ = true;
-    enable_joy_ = true;
 
     timer_ = this->create_wall_timer(std::chrono::milliseconds(20),std::bind(&TracerTeleop::processLoop, this));
 }
@@ -237,11 +236,8 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
             init_counter_ -=1;
         }
 
-        if (enable_joy_) {
+        if (joy_.buttons[3] == 1) {
             joy_pub_->publish(joy_);
-            enable_joy_ = false;
-        } else {
-            enable_joy_ = true;
         }
 
         //dummy cmd_vel publish
