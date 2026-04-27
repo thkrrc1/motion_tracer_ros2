@@ -28,9 +28,16 @@ UpperController::UpperController() :
     init_follow_joint_trajectory();
 }
 
+UpperController::~UpperController() {
+}
+
 void UpperController::init_follow_joint_trajectory() {
     while (!grasp_client_->wait_for_service(std::chrono::seconds(1))) {
         RCLCPP_INFO(this->get_logger(), "Waiting for hand grasp service...");
+        if (!rclcpp::ok()) {
+            RCLCPP_ERROR(this->get_logger(), "Grasp Service not available.");
+            return;
+        }
     }
 
     rarm_msg.joint_names.resize(7);

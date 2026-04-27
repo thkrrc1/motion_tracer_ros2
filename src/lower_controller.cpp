@@ -15,6 +15,9 @@ LowerController::LowerController() :
     init_follow_joint_trajectory();
 }
 
+LowerController::~LowerController() {
+}
+
 void LowerController::init_follow_joint_trajectory() {
     lifter_msg.joint_names.resize(2);
     lifter_msg.joint_names[0] = "knee_joint";

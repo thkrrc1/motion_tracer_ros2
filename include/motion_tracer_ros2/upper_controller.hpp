@@ -19,6 +19,7 @@ class UpperController : public rclcpp::Node
 {
 public:
     UpperController();
+    ~UpperController();
 
     void init_follow_joint_trajectory();
     void graspControl(std::string position, std::string _pose);

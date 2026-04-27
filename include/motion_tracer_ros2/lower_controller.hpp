@@ -18,6 +18,7 @@ class LowerController : public rclcpp::Node
 {
 public:
     LowerController();
+    ~LowerController();
 
     void init_follow_joint_trajectory();
     void sendJointAngles();
