@@ -6,6 +6,7 @@ TracerTeleop::TracerTeleop() :
     tracer_ = new tracer::controller::TracerCommand();
 
     if (!tracer_->port_open("/dev/tracer_usb", 460800)) {
+    // if (!tracer_->port_open("/dev/tracer_usb", 1000000)) {
         RCLCPP_ERROR(this->get_logger(), "Connection failed");
         rclcpp::shutdown();
         return;
@@ -62,7 +63,7 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
         return;
     }
 
-    if (tracer_data_[0] == 0xFD) {
+    if (tracer_data_[0] == 0xDF) {
         if (tracer_data_.size() < 64) {
             return;
         }
@@ -72,73 +73,73 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
         }
 
         // waist
-        if (-900 <= position_[15] && position_[15] <= 900 ) {
-            tracer_state_.position[0] = position_[15] * 5;
+        if (-900 <= position_[0] && position_[0] <= 900 ) {
+            tracer_state_.position[0] = position_[0] * 5;
         }
 
         // right arm
-        if (-200 <= position_[3] && position_[3] <= 890 ) {
-            tracer_state_.position[1] = position_[3];
-        } else if (-450 < position_[3] && position_[3] < -200 ) {
+        if (-200 <= position_[9] && position_[9] <= 890 ) {
+            tracer_state_.position[1] = position_[9];
+        } else if (-450 < position_[1] && position_[9] < -200 ) {
             tracer_state_.position[1] = -200;
         }
-        if (0 <= position_[4] && position_[4] <= 900 ) {
-            tracer_state_.position[2] = position_[4];
+        if (0 <= position_[10] && position_[10] <= 900 ) {
+            tracer_state_.position[2] = position_[10];
         }
-        if (-900 <= position_[5] && position_[5] <= 900 ) {
-            tracer_state_.position[3] = position_[5];
+        if (-900 <= position_[11] && position_[11] <= 900 ) {
+            tracer_state_.position[3] = position_[11];
         }
-        if (0 <= position_[6] && position_[6] <= 1800 ) {
-            tracer_state_.position[4] = position_[6];
+        if (0 <= position_[12] && position_[12] <= 1800 ) {
+            tracer_state_.position[4] = position_[12];
         }
-        if (-900 <= position_[7] && position_[7] <= 900 ) {
-            if (pre_r_wrist_y_ > 450 && position_[7] < 0) {
+        if (-900 <= position_[13] && position_[13] <= 900 ) {
+            if (pre_r_wrist_y_ > 450 && position_[13] < 0) {
                 tracer_state_.position[5] = 900;
-            } else if (pre_r_wrist_y_ < -450 && position_[7] > 0) {
+            } else if (pre_r_wrist_y_ < -450 && position_[13] > 0) {
                 tracer_state_.position[5] = -900;
             } else {
-                tracer_state_.position[5] = position_[7];
+                tracer_state_.position[5] = position_[13];
             }
         }
-        if (-100 <= position_[8] && position_[8] <= 100 ) {
-            tracer_state_.position[6] = position_[8];
+        if (-100 <= position_[14] && position_[14] <= 100 ) {
+            tracer_state_.position[6] = position_[14];
         }
-        if (-300 <= position_[9] && position_[9] <= 900 ) {
-            tracer_state_.position[7] = position_[9];
+        if (-300 <= position_[15] && position_[15] <= 900 ) {
+            tracer_state_.position[7] = position_[15];
         }
-        tracer_state_.position[8] = position_[11];
+        tracer_state_.position[8] = position_[16];
 
         //left arm
-        if (-200 <= position_[18] && position_[18] <= 890 ) {
-            tracer_state_.position[9] = position_[18];
-        } else if (-450 < position_[18] && position_[18] < -200 ) {
+        if (-200 <= position_[1] && position_[1] <= 890 ) {
+            tracer_state_.position[9] = position_[1];
+        } else if (-450 < position_[9] && position_[1] < -200 ) {
             tracer_state_.position[9] = -200;
         }
-        if (0 <= position_[19] && position_[19] <= 900 ) {
-            tracer_state_.position[10] = position_[19];
+        if (0 <= position_[2] && position_[2] <= 900 ) {
+            tracer_state_.position[10] = position_[2];
         }
-        if (-900 <= position_[20] && position_[20] <= 900 ) {
-            tracer_state_.position[11] = position_[20];
+        if (-900 <= position_[3] && position_[3] <= 900 ) {
+            tracer_state_.position[11] = position_[3];
         }
-        if (0 <= position_[21] && position_[21] <= 1800 ) {
-            tracer_state_.position[12] = position_[21];
+        if (0 <= position_[4] && position_[4] <= 1800 ) {
+            tracer_state_.position[12] = position_[4];
         }
-        if (-900 <= position_[22] && position_[22] <= 900 ) {
-            if (pre_l_wrist_y_ > 450 && position_[22] < 0) {
+        if (-900 <= position_[5] && position_[5] <= 900 ) {
+            if (pre_l_wrist_y_ > 450 && position_[5] < 0) {
                 tracer_state_.position[13] = 900;
-            } else if (pre_l_wrist_y_ < -450 && position_[22] > 0) {
+            } else if (pre_l_wrist_y_ < -450 && position_[5] > 0) {
                 tracer_state_.position[13] = -900;
             } else {
-                tracer_state_.position[13] = position_[22];
+                tracer_state_.position[13] = position_[5];
             }
         }
-        if (-100 <= position_[23] && position_[23] <= 100 ) {
-            tracer_state_.position[14] = position_[23];
+        if (-100 <= position_[6] && position_[6] <= 100 ) {
+            tracer_state_.position[14] = position_[6];
         }
-        if (-300 <= position_[24] && position_[24] <= 900 ) {
-            tracer_state_.position[15] = position_[24];
+        if (-300 <= position_[7] && position_[7] <= 900 ) {
+            tracer_state_.position[15] = position_[7];
         }
-        tracer_state_.position[16] = position_[26];
+        tracer_state_.position[16] = position_[8];
 
         tracer_state_.header.stamp = this->now();
         tracer_state_pub_->publish(tracer_state_);

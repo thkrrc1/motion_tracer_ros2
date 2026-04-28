@@ -67,7 +67,7 @@ void SerialCommunication::parseBuffer(const std::vector<uint8_t>&) {
 
     while (raw_buffer_.size() >= 4) {
     // ヘッダ検出
-        if (raw_buffer_[0] == 0xFD && raw_buffer_[1] == 0xDF) {
+        if (raw_buffer_[0] == 0xDF && raw_buffer_[1] == 0xFD) {
             if (raw_buffer_.size() < 4) {
                 return;
             }
