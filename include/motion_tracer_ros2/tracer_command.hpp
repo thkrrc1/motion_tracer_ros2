@@ -28,9 +28,13 @@ public:
 
     bool getPacket(std::vector<uint8_t>& packet);
 
+    void write(const std::vector<uint8_t>& data);
+
 private:
     void doReceive();
     void parseBuffer(const std::vector<uint8_t>& data);
+
+    std::mutex serial_mutex_;
 
     io_service io_;
     serial_port serial_;
@@ -52,6 +56,8 @@ public:
     void port_close();
 
     bool get_packet(std::vector<uint8_t>& packet);
+
+    void send_current(const std::vector<uint16_t>& currents);
 
 private:
     SerialCommunication serial_com_;

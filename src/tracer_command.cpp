@@ -111,6 +111,22 @@ bool SerialCommunication::getPacket(std::vector<uint8_t>& packet) {
     return true;
 }
 
+void SerialCommunication::write(const std::vector<uint8_t>& data) {
+    std::lock_guard<std::mutex> lock(serial_mutex_);
+    boost::system::error_code ec;
+
+    boost::asio::write(
+        serial_,
+        boost::asio::buffer(data),
+        ec
+    );
+
+    if (ec) {
+        std::cerr << "serial write error: "
+                  << ec.message() << std::endl;
+    }
+}
+
 
 TracerCommand::TracerCommand() : 
     is_open_(false) {
@@ -132,6 +148,47 @@ void TracerCommand::port_close() {
 
 bool TracerCommand::get_packet(std::vector<uint8_t>& packet) {
     return serial_com_.getPacket(packet);
+}
+
+void TracerCommand::send_current(const std::vector<uint16_t>& currents) {
+    std::vector<uint8_t> packet;
+
+    packet.push_back(0xFD);
+    packet.push_back(0xDF);
+
+    uint8_t len = 64;
+    packet.push_back(len);
+
+    // 電流値送信コマンド
+    uint8_t cmd = 0x01;
+    packet.push_back(cmd);
+
+    uint8_t mcid = 0x00;
+    packet.push_back(mcid);
+
+    for (auto c : currents) {
+        packet.push_back(static_cast<uint8_t>(c >> 8));
+        packet.push_back(static_cast<uint8_t>(c));
+    }
+
+    packet.push_back(0x7F);
+    packet.push_back(0xFF);
+
+    // checksum
+    unsigned int cs = 0;
+    cs += len;
+    cs += cmd;
+    cs += mcid;
+    for (auto c : currents) {
+        cs += static_cast<uint8_t>(c >> 8);
+        cs += static_cast<uint8_t>(c);
+    }
+    cs += 0x7F;
+    cs += 0xFF;
+    packet.push_back(static_cast<uint8_t>(~cs));
+
+    // 送信
+    serial_com_.write(packet);
 }
 
 } // namespace controller

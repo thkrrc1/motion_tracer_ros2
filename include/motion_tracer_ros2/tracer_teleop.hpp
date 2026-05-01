@@ -10,14 +10,16 @@
 
 #include "motion_tracer_ros2/tracer_command.hpp"
 
+#include "aero_controller_msgs/msg/current.hpp"
+
 class TracerTeleop : public rclcpp::Node
 {
 public:
     TracerTeleop();
     ~TracerTeleop();
 
+    void currentCallback(const aero_controller_msgs::msg::Current& _current_data);
     void processLoop();
-
     void processPacket(const std::vector<uint8_t>& packet);
 
 private:
@@ -36,12 +38,23 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
     geometry_msgs::msg::Twist cmd_vel_;
 
+    rclcpp::Subscription<aero_controller_msgs::msg::Current>::SharedPtr current_sub_;
+
+    std::vector<uint8_t> latest_current_;
+    std::mutex current_mutex_;
+
+    std::thread tx_thread_;
+    std::atomic<bool> running_;
+    void txLoop();
+
     bool wheel_stop_flag_;
 
     bool tracer_mode_;
     int init_counter_;
 
     int16_t pre_r_wrist_y_, pre_l_wrist_y_;
+
+    bool only_hand_current = true;
 
     //////////////////////////////
     // GUI parameters

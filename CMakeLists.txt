@@ -61,6 +61,7 @@ ament_target_dependencies(tracer_teleop_node
   tf2
   tf2_ros
   sensor_msgs
+  aero_controller_msgs
 )
 ament_target_dependencies(upper_controller_node
   rclcpp

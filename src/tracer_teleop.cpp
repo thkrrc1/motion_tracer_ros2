@@ -20,6 +20,9 @@ TracerTeleop::TracerTeleop() :
     joy_pub_ = this->create_publisher<sensor_msgs::msg::Joy>("tracer_joy", 1);
     cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", 1);
 
+    // Subscriber
+    current_sub_ = this->create_subscription<aero_controller_msgs::msg::Current>("/current_controller/current", 1, std::bind(&TracerTeleop::currentCallback, this, std::placeholders::_1));
+
     // JointState初期化
     tracer_state_.name.resize(17);
     tracer_state_.position.resize(17);
@@ -31,13 +34,78 @@ TracerTeleop::TracerTeleop() :
 
     position_.resize(30, 0);
 
+    latest_current_.resize(60, 0);
+
     wheel_stop_flag_ = true;
 
     timer_ = this->create_wall_timer(std::chrono::milliseconds(20),std::bind(&TracerTeleop::processLoop, this));
+
+    running_ = true;
+    tx_thread_ = std::thread(&TracerTeleop::txLoop, this);
 }
 
 TracerTeleop::~TracerTeleop() {
     delete tracer_;
+    running_ = false;
+
+    if(tx_thread_.joinable())
+    {
+        tx_thread_.join();
+    }
+}
+
+void TracerTeleop::currentCallback(const aero_controller_msgs::msg::Current& _current_data) {
+    std::lock_guard<std::mutex> lock(current_mutex_);
+    for (unsigned int idx = 0; idx < _current_data.data.size(); ++idx) {
+        latest_current_[idx] = _current_data.data[idx];
+    }
+}
+
+void TracerTeleop::txLoop() {
+
+    rclcpp::WallRate rate(1000.0);
+
+    std::vector<uint8_t> current_copy;
+    while(running_) {
+        {
+            std::lock_guard<std::mutex> lock(current_mutex_);
+            current_copy = latest_current_;
+        }
+
+        if(current_copy.size()!= 60){
+            return;
+        }
+
+        std::vector<uint16_t> currents(current_copy.size()/2);
+
+        // 初期化
+        for (unsigned int idx = 0; idx < currents.size(); ++idx) {
+            currents[idx] = 0x7FFF;
+        }
+
+        if (only_hand_current) {
+            int right_hand_aero_id = 11;
+            int left_hand_aero_id = 26;
+            double scale = 1.0;
+
+            uint16_t r_hand_current = static_cast<uint16_t>(current_copy[right_hand_aero_id * 2]) << 8 |
+                                        static_cast<uint16_t>(current_copy[right_hand_aero_id * 2 + 1]);
+            uint16_t l_hand_current = static_cast<uint16_t>(current_copy[left_hand_aero_id * 2]) << 8 |
+                                        static_cast<uint16_t>(current_copy[left_hand_aero_id * 2 + 1]);
+
+            currents[16] = r_hand_current * scale;
+            currents[8] = l_hand_current * scale;
+            
+        } else {
+            for (unsigned int idx = 0; idx < currents.size(); ++idx) {
+                currents[idx] = static_cast<uint16_t>(current_copy[idx * 2]) << 8 |
+                                    static_cast<uint16_t>(current_copy[idx * 2 + 1]);
+            }
+        }
+        tracer_->send_current(currents);
+
+        rate.sleep();
+    }
 }
 
 void TracerTeleop::processLoop() {
@@ -71,6 +139,12 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
         for(int i=0;i<30;++i) {
             position_[i] = (tracer_data_[i*2+5] << 8) + tracer_data_[i*2+6];
         }
+
+        std::cout << "--------Tracer Position--------" << std::endl;
+        for(int i=0;i<30;++i) {
+            std::cout << "position_["<<i<<"] = " << position_[i]<< std::endl;
+        }
+        std::cout << "-------------------------------" << std::endl;
 
         // waist
         if (-900 <= position_[0] && position_[0] <= 900 ) {
