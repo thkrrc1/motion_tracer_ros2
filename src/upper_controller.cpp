@@ -46,8 +46,8 @@ void UpperController::init_follow_joint_trajectory() {
     rarm_msg.joint_names[2] = "r_shoulder_y_joint";
     rarm_msg.joint_names[3] = "r_elbow_joint";
     rarm_msg.joint_names[4] = "r_wrist_y_joint";
-    rarm_msg.joint_names[5] = "r_wrist_p_joint";
-    rarm_msg.joint_names[6] = "r_wrist_r_joint";
+    rarm_msg.joint_names[5] = "r_wrist_r_joint";
+    rarm_msg.joint_names[6] = "r_wrist_p_joint";
     rarm_msg.points.resize(1);
     rarm_msg.points[0].positions.resize(rarm_msg.joint_names.size());
 
@@ -57,8 +57,8 @@ void UpperController::init_follow_joint_trajectory() {
     larm_msg.joint_names[2] = "l_shoulder_y_joint";
     larm_msg.joint_names[3] = "l_elbow_joint";
     larm_msg.joint_names[4] = "l_wrist_y_joint";
-    larm_msg.joint_names[5] = "l_wrist_p_joint";
-    larm_msg.joint_names[6] = "l_wrist_r_joint";
+    larm_msg.joint_names[5] = "l_wrist_r_joint";
+    larm_msg.joint_names[6] = "l_wrist_p_joint";
     larm_msg.points.resize(1);
     larm_msg.points[0].positions.resize(larm_msg.joint_names.size());
 
@@ -132,22 +132,26 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["r_shoulder_p_joint"] = _tracer_data.position[1] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_shoulder_r_joint"] = _tracer_data.position[2] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_shoulder_y_joint"] = _tracer_data.position[3] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["r_elbow_joint"] = (180 - _tracer_data.position[4] / 10.0) * deg2Rad * -1.0;
+    joint_angles_["r_elbow_joint"] = _tracer_data.position[4] / 10.0 * deg2Rad;
     joint_angles_["r_wrist_y_joint"] = _tracer_data.position[5] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["r_wrist_p_joint"] = _tracer_data.position[6] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["r_wrist_r_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad * 1.0;
-    joint_angles_["r_thumb_joint"] = (_tracer_data.position[8] / 10.0 * deg2Rad + 1.0) * 1.0;
+    joint_angles_["r_wrist_r_joint"] = _tracer_data.position[6] / 10.0 * deg2Rad * -1.0;
+    joint_angles_["r_wrist_p_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad * -1.0;
+    joint_angles_["r_thumb_joint"] = calcHandAngle(_tracer_data.position[8] / 10.0, 0.0);
 
-    joint_angles_["l_shoulder_p_joint"] = _tracer_data.position[9] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["l_shoulder_r_joint"] = _tracer_data.position[10] / 10.0 * deg2Rad;
-    joint_angles_["l_shoulder_y_joint"] = _tracer_data.position[11] / 10.0 * deg2Rad;
-    joint_angles_["l_elbow_joint"] = (180 - _tracer_data.position[12] / 10.0) * deg2Rad * -1.0;
+    joint_angles_["l_shoulder_p_joint"] = _tracer_data.position[9] / 10.0 * deg2Rad;
+    joint_angles_["l_shoulder_r_joint"] = _tracer_data.position[10] / 10.0 * deg2Rad * -1.0;
+    joint_angles_["l_shoulder_y_joint"] = _tracer_data.position[11] / 10.0 * deg2Rad * -1.0;
+    joint_angles_["l_elbow_joint"] = _tracer_data.position[12] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_y_joint"] = _tracer_data.position[13] / 10.0 * deg2Rad * 1.0;
-    joint_angles_["l_wrist_p_joint"] = _tracer_data.position[14] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["l_wrist_r_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["l_thumb_joint"] = (_tracer_data.position[16] / 10.0 * deg2Rad + 0.8) * -1.0;
+    joint_angles_["l_wrist_r_joint"] = _tracer_data.position[14] / 10.0 * deg2Rad * -1.0;
+    joint_angles_["l_wrist_p_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad;
+    joint_angles_["l_thumb_joint"] = calcHandAngle(_tracer_data.position[16] / 10.0, 0.0);
 
     sendJointAngles();
+}
+
+double UpperController::calcHandAngle(double _position, double offset){
+    return (-0.071 * pow(_position, 2.0) + 5.093 * _position + 64.62) / 1000.0 + offset;
 }
 
 void UpperController::sendJointAngles() {
@@ -157,8 +161,8 @@ void UpperController::sendJointAngles() {
         joint_angles_["r_shoulder_y_joint"],
         joint_angles_["r_elbow_joint"],
         joint_angles_["r_wrist_y_joint"],
-        joint_angles_["r_wrist_p_joint"],
-        joint_angles_["r_wrist_r_joint"]
+        joint_angles_["r_wrist_r_joint"],
+        joint_angles_["r_wrist_p_joint"]
     };
     rarm_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
 
@@ -168,8 +172,8 @@ void UpperController::sendJointAngles() {
         joint_angles_["l_shoulder_y_joint"],
         joint_angles_["l_elbow_joint"],
         joint_angles_["l_wrist_y_joint"],
-        joint_angles_["l_wrist_p_joint"],
-        joint_angles_["l_wrist_r_joint"]
+        joint_angles_["l_wrist_r_joint"],
+        joint_angles_["l_wrist_p_joint"]
     };
     larm_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
 

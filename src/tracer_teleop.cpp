@@ -1,7 +1,7 @@
 #include "motion_tracer_ros2/tracer_teleop.hpp"
 
 TracerTeleop::TracerTeleop() :
-    Node("tracer_teleop_node"),init_counter_(0),pre_r_wrist_y_(0),pre_l_wrist_y_(0),tracer_mode_(0) {
+    Node("tracer_teleop_node"),init_counter_(0),tracer_mode_(0) {
 
     tracer_ = new tracer::controller::TracerCommand();
 
@@ -147,79 +147,112 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
         std::cout << "-------------------------------" << std::endl;
 
         // waist
-        if (-900 <= position_[0] && position_[0] <= 900 ) {
+        if (-900 <= position_[0] && position_[0] <= 900) {
             tracer_state_.position[0] = position_[0] * 5;
         }
 
-        // right arm
-        if (-200 <= position_[9] && position_[9] <= 890 ) {
+        // ######right arm######
+        // r_shoulder_p_joint
+        if (0 <= position_[9] && position_[9] <= 986) {
             tracer_state_.position[1] = position_[9];
-        } else if (-450 < position_[1] && position_[9] < -200 ) {
-            tracer_state_.position[1] = -200;
+        } else if (986 < position_[9] && position_[9] <= 1800) {
+            tracer_state_.position[1] = 986;
         }
-        if (0 <= position_[10] && position_[10] <= 900 ) {
+        // r_shoulder_r_joint
+        if (0 <= position_[10] && position_[10] <= 900) {
             tracer_state_.position[2] = position_[10];
+        } else if (900 < position_[10] && position_[10] < 1800) {
+            tracer_state_.position[2] = 900;
         }
-        if (-900 <= position_[11] && position_[11] <= 900 ) {
+        // r_shoulder_y_joint
+        if (0 <= position_[11] && position_[11] <= 1800) {
             tracer_state_.position[3] = position_[11];
+        } else if (1800 < position_[11] && position_[11] < 3600) {
+            tracer_state_.position[3] = position_[11] - 3600;
         }
-        if (0 <= position_[12] && position_[12] <= 1800 ) {
-            tracer_state_.position[4] = position_[12];
+        // r_elbow_joint
+        if (1880 <= position_[12] && position_[12] < 3600) {
+            tracer_state_.position[4] = position_[12] - 3600;
+        } else if (900 < position_[12] && position_[12] < 1880) {
+            tracer_state_.position[4] = -1720;
         }
-        if (-900 <= position_[13] && position_[13] <= 900 ) {
-            if (pre_r_wrist_y_ > 450 && position_[13] < 0) {
-                tracer_state_.position[5] = 900;
-            } else if (pre_r_wrist_y_ < -450 && position_[13] > 0) {
-                tracer_state_.position[5] = -900;
-            } else {
-                tracer_state_.position[5] = position_[13];
-            }
+        // r_wrist_y_joint
+        if (0 <= position_[13] && position_[13] <= 1800) {
+            tracer_state_.position[5] = position_[13];
+        } else if (1800 < position_[13] && position_[13] < 3600) {
+            tracer_state_.position[5] = position_[13] - 3600;
         }
-        if (-100 <= position_[14] && position_[14] <= 100 ) {
+        // r_wrist_r_joint
+        if (0 <= position_[14] && position_[14] <= 1800) {
             tracer_state_.position[6] = position_[14];
+        } else if (1800 < position_[14] && position_[14] < 3600) {
+            tracer_state_.position[6] = position_[14] - 3600;
         }
-        if (-300 <= position_[15] && position_[15] <= 900 ) {
+        // r_wrist_p_joint
+        if (0 <= position_[15] && position_[15] <= 1800) {
             tracer_state_.position[7] = position_[15];
+        } else if (1800 < position_[15] && position_[15] < 3600) {
+            tracer_state_.position[7] = position_[15] - 3600;
         }
-        tracer_state_.position[8] = position_[16];
+        // r_thumb_joint
+        if (0 <= position_[16] && position_[16] <= 110) {
+            tracer_state_.position[8] = position_[16];
+        } else if (3150 < position_[16] && position_[16] < 3600) {
+            tracer_state_.position[8] = position_[16] - 3600;
+        }
 
-        //left arm
-        if (-200 <= position_[1] && position_[1] <= 890 ) {
-            tracer_state_.position[9] = position_[1];
-        } else if (-450 < position_[9] && position_[1] < -200 ) {
-            tracer_state_.position[9] = -200;
+        // ######left arm######
+        // l_shoulder_p_joint
+        if (2614 <= position_[1] && position_[1] < 3600) {
+            tracer_state_.position[9] = position_[1] - 3600;
+        } else if (1800 <= position_[1] && position_[1] < 2614) {
+            tracer_state_.position[9] = -986;
         }
-        if (0 <= position_[2] && position_[2] <= 900 ) {
-            tracer_state_.position[10] = position_[2];
+        // l_shoulder_r_joint
+        if (2700 <= position_[2] && position_[2] < 3600) {
+            tracer_state_.position[10] = position_[2] - 3600;
+        } else if (1800 <= position_[2] && position_[2] < 2700) {
+            tracer_state_.position[10] = -900;
         }
-        if (-900 <= position_[3] && position_[3] <= 900 ) {
+        // l_shoulder_y_joint
+        if (0 <= position_[3] && position_[3] <= 1800) {
             tracer_state_.position[11] = position_[3];
+        } else if (1800 < position_[3] && position_[3] < 3600) {
+            tracer_state_.position[11] = position_[3] - 3600;
         }
-        if (0 <= position_[4] && position_[4] <= 1800 ) {
+        // l_elbow_joint
+        if (0 <= position_[4] && position_[4] <= 1720) {
             tracer_state_.position[12] = position_[4];
+        } else if (1720 < position_[4] && position_[4] < 2700) {
+            tracer_state_.position[12] = 1720;
         }
-        if (-900 <= position_[5] && position_[5] <= 900 ) {
-            if (pre_l_wrist_y_ > 450 && position_[5] < 0) {
-                tracer_state_.position[13] = 900;
-            } else if (pre_l_wrist_y_ < -450 && position_[5] > 0) {
-                tracer_state_.position[13] = -900;
-            } else {
-                tracer_state_.position[13] = position_[5];
-            }
+        // l_wrist_y_joint
+        if (0 <= position_[5] && position_[5] <= 1800) {
+            tracer_state_.position[13] = position_[5];
+        } else if (1800 < position_[5] && position_[5] < 3600) {
+            tracer_state_.position[13] = position_[5] - 3600;
         }
-        if (-100 <= position_[6] && position_[6] <= 100 ) {
+        // l_wrist_r_joint
+        if (0 <= position_[6] && position_[6] <= 1800) {
             tracer_state_.position[14] = position_[6];
+        } else if (1800 < position_[6] && position_[6] < 3600) {
+            tracer_state_.position[14] = position_[6] - 3600;
         }
-        if (-300 <= position_[7] && position_[7] <= 900 ) {
+        // l_wrist_p_joint
+        if (0 <= position_[7] && position_[7] <= 1800) {
             tracer_state_.position[15] = position_[7];
+        } else if (1800 < position_[7] && position_[7] < 3600) {
+            tracer_state_.position[15] = position_[7] - 3600;
         }
-        tracer_state_.position[16] = position_[8];
+        // l_thumb_joint
+        if (0 <= position_[8] && position_[8] < 450) {
+            tracer_state_.position[16] = position_[8];
+        } else if (3490 < position_[8] && position_[8] < 3600) {
+            tracer_state_.position[16] = position_[8] - 3600;
+        }
 
         tracer_state_.header.stamp = this->now();
         tracer_state_pub_->publish(tracer_state_);
-
-        pre_r_wrist_y_ = tracer_state_.position[5];
-        pre_l_wrist_y_ = tracer_state_.position[13];
 
     } else if (tracer_data_[0] == 0xFB) {
         if (tracer_data_.size() < 7) {

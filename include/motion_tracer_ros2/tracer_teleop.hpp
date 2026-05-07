@@ -52,8 +52,6 @@ private:
     bool tracer_mode_;
     int init_counter_;
 
-    int16_t pre_r_wrist_y_, pre_l_wrist_y_;
-
     bool only_hand_current = true;
 
     //////////////////////////////

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cmath>
 #include <map>
+#include <math.h>
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
@@ -26,6 +27,7 @@ public:
     void tracerStateCallback(const sensor_msgs::msg::JointState& _tracer_data);
     void sendJointAngles();
     void getJoy(const sensor_msgs::msg::Joy::SharedPtr msg);
+    double calcHandAngle(double _position, double offset);
 
 private:
     std::mutex msg_mtx;
