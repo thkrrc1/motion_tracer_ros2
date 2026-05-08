@@ -20,7 +20,7 @@ public:
 
     void currentCallback(const aero_controller_msgs::msg::Current& _current_data);
     void processLoop();
-    void processPacket(const std::vector<uint8_t>& packet);
+    void processPacket(std::vector<uint8_t>& packet);
 
 private:
     tracer::controller::TracerCommand *tracer_;
@@ -49,8 +49,8 @@ private:
 
     bool wheel_stop_flag_;
 
-    bool tracer_mode_;
     int init_counter_;
+    bool tracer_mode_;
 
     bool only_hand_current = true;
 

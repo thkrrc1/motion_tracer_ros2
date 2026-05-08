@@ -82,17 +82,6 @@ void SerialCommunication::parseBuffer(const std::vector<uint8_t>&) {
             packet_queue_.push(packet);
 
             raw_buffer_.erase(raw_buffer_.begin(), raw_buffer_.begin() + len);
-        } else if (raw_buffer_[0] == 0xFB && raw_buffer_[1] == 0xBF) {
-            if (raw_buffer_.size() < 7){
-                return;
-            }
-
-            uint8_t len = raw_buffer_[2]+4;
-
-            std::vector<uint8_t> packet(raw_buffer_.begin(), raw_buffer_.begin() + len);
-            packet_queue_.push(packet);
-
-            raw_buffer_.erase(raw_buffer_.begin(), raw_buffer_.begin() + 7);
         } else {
             // ゴミ除去
             raw_buffer_.erase(raw_buffer_.begin());

@@ -24,6 +24,8 @@ UpperController::UpperController() :
     larm_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("larm_controller/joint_trajectory", 1);
     waist_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("waist_controller/joint_trajectory", 1);
     head_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("head_controller/joint_trajectory", 1);
+    rhand_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("rhand_controller/joint_trajectory", 1);
+    lhand_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("lhand_controller/joint_trajectory", 1);
 
     init_follow_joint_trajectory();
 }
@@ -191,22 +193,34 @@ void UpperController::sendJointAngles() {
     };
     head_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
 
+    rhand_msg.points[0].positions = {
+        joint_angles_["r_thumb_joint"]
+    };
+    rhand_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+
+    lhand_msg.points[0].positions = {
+        joint_angles_["l_thumb_joint"]
+    };
+    lhand_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+
     rarm_traj_pub_->publish(rarm_msg);
     larm_traj_pub_->publish(larm_msg);
     waist_traj_pub_->publish(waist_msg);
     head_traj_pub_->publish(head_msg);
+    rhand_traj_pub_->publish(rhand_msg);
+    lhand_traj_pub_->publish(lhand_msg);
 
-    // HandControl NonRT 
-    if (joint_angles_["r_thumb_joint"] < 0.0 && r_hand_state == "open") {
-        graspControl("right","grasp");
-    } else if (joint_angles_["r_thumb_joint"] >= 0.0 && r_hand_state == "close") {
-        graspControl("right","release");
-    }
-    if( joint_angles_["l_thumb_joint"] > 0.0 && l_hand_state == "open") {
-        graspControl("left","grasp");
-    } else if (joint_angles_["l_thumb_joint"] <= 0.0 && l_hand_state == "close") {
-        graspControl("left","release");
-    }
+    // // HandControl NonRT
+    // if (joint_angles_["r_thumb_joint"] < 0.0 && r_hand_state == "open") {
+    //     graspControl("right","grasp");
+    // } else if (joint_angles_["r_thumb_joint"] >= 0.0 && r_hand_state == "close") {
+    //     graspControl("right","release");
+    // }
+    // if( joint_angles_["l_thumb_joint"] > 0.0 && l_hand_state == "open") {
+    //     graspControl("left","grasp");
+    // } else if (joint_angles_["l_thumb_joint"] <= 0.0 && l_hand_state == "close") {
+    //     graspControl("left","release");
+    // }
 }
 
 void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {

@@ -6,7 +6,6 @@ TracerTeleop::TracerTeleop() :
     tracer_ = new tracer::controller::TracerCommand();
 
     if (!tracer_->port_open("/dev/tracer_usb", 460800)) {
-    // if (!tracer_->port_open("/dev/tracer_usb", 1000000)) {
         RCLCPP_ERROR(this->get_logger(), "Connection failed");
         rclcpp::shutdown();
         return;
@@ -126,7 +125,7 @@ void TracerTeleop::processLoop() {
     }
 }
 
-void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
+void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
     if (tracer_data_.size() < 1) {
         return;
     }
@@ -151,7 +150,7 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
             tracer_state_.position[0] = position_[0] * 5;
         }
 
-        // ######right arm######
+        //////right arm//////
         // r_shoulder_p_joint
         if (0 <= position_[9] && position_[9] <= 986) {
             tracer_state_.position[1] = position_[9];
@@ -201,7 +200,7 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
             tracer_state_.position[8] = position_[16] - 3600;
         }
 
-        // ######left arm######
+        //////left arm//////
         // l_shoulder_p_joint
         if (2614 <= position_[1] && position_[1] < 3600) {
             tracer_state_.position[9] = position_[1] - 3600;
@@ -254,35 +253,30 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
         tracer_state_.header.stamp = this->now();
         tracer_state_pub_->publish(tracer_state_);
 
-    } else if (tracer_data_[0] == 0xFB) {
-        if (tracer_data_.size() < 7) {
-            return;
+        //////joy sticks & buttons//////
+        if (tracer_data_[55] > 122 && tracer_data_[55] < 132 ) {
+            tracer_data_[55] = 127;
         }
-
-        std::vector<uint8_t> tr_data_ = tracer_data_;
-        if (tr_data_[6] > 122 && tr_data_[6] < 132 ) {
-            tr_data_[6] = 127;
+        if (tracer_data_[56] > 122 && tracer_data_[56] < 132 ) {
+            tracer_data_[56] = 127;
         }
-        if (tr_data_[7] > 122 && tr_data_[7] < 132 ) {
-            tr_data_[7] = 127;
+        if (tracer_data_[57] > 122 && tracer_data_[57] < 132 ) {
+            tracer_data_[57] = 127;
         }
-        if (tr_data_[8] > 122 && tr_data_[8] < 132 ) {
-            tr_data_[8] = 127;
-        }
-        if (tr_data_[9] > 122 && tr_data_[9] < 132 ) {
-            tr_data_[9] = 127;
+        if (tracer_data_[58] > 122 && tracer_data_[58] < 132 ) {
+            tracer_data_[58] = 127;
         }
 
         //left joy_stick
-        joy_.axes[0] = static_cast<float>(127 - tr_data_[6]) / 127;
-        joy_.axes[1] = static_cast<float>(127 - tr_data_[7]) / 127;
+        joy_.axes[0] = static_cast<float>(127 - tracer_data_[55]) / 127;
+        joy_.axes[1] = static_cast<float>(127 - tracer_data_[56]) / 127;
 
         //right joy_stick
-        joy_.axes[3] = static_cast<float>(127 - tr_data_[8]) / 127;
-        joy_.axes[2] = static_cast<float>(127 - tr_data_[9]) / 127;
+        joy_.axes[3] = static_cast<float>(127 - tracer_data_[57]) / 127;
+        joy_.axes[2] = static_cast<float>(127 - tracer_data_[58]) / 127;
 
         //Left Hand
-        switch (tr_data_[4]) {
+        switch (tracer_data_[53]) {
             case 32:
                 joy_.axes[4] = -1;
                 joy_.axes[5] = 0;
@@ -299,11 +293,10 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
                 joy_.axes[4] = 0;
                 joy_.axes[5] = 0;
                 break;
-
         }
 
         //Right Hand
-        switch (tr_data_[5]) {
+        switch (tracer_data_[54]) {
             case 32:
                 joy_.buttons[0] = 0;
                 joy_.buttons[1] = 0;
@@ -361,32 +354,7 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
         }
 
         if (tracer_mode_ == 1 && joy_.buttons[3] == 0 ) {
-            if (initial_pose_ == "MC") {
-                init_counter_ = 50;
-                tracer_state_.position[0] = 0;
-                //right arm
-                tracer_state_.position[1] = -200;
-                tracer_state_.position[2] = 100;
-                tracer_state_.position[3] = -135;
-                tracer_state_.position[4] = 800;
-                tracer_state_.position[5] = 0;
-                tracer_state_.position[6] = 100;
-                tracer_state_.position[7] = 150;
-                tracer_state_.position[8] = 1700;
-
-                //left arm
-                tracer_state_.position[9] = -200;
-                tracer_state_.position[10] = 100;
-                tracer_state_.position[11] = -135;
-                tracer_state_.position[12] = 800;
-                tracer_state_.position[13] = 0;
-                tracer_state_.position[14] = 100;
-                tracer_state_.position[15] = 150;
-                tracer_state_.position[16] = 1700;
-                tracer_state_.header.stamp = this->get_clock()->now();
-                tracer_state_pub_->publish(tracer_state_);
-                std::cout << "go to initial pose" << std::endl;
-            } else if (initial_pose_ == "zero") {
+            if (initial_pose_ == "zero") {
                 init_counter_ = 20;
                 tracer_state_.position[0] = 0;
 
@@ -398,7 +366,7 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
                 tracer_state_.position[5] = 0;
                 tracer_state_.position[6] = 0;
                 tracer_state_.position[7] = 0;
-                tracer_state_.position[8] = 300;
+                tracer_state_.position[8] = 0;
 
                 //left arm
                 tracer_state_.position[9] = 0;
@@ -408,8 +376,8 @@ void TracerTeleop::processPacket(const std::vector<uint8_t>& tracer_data_) {
                 tracer_state_.position[13] = 0;
                 tracer_state_.position[14] = 0;
                 tracer_state_.position[15] = 0;
-                tracer_state_.position[16] = 1000;
-                tracer_state_.header.stamp = this->get_clock()->now();
+                tracer_state_.position[16] = 0;
+                tracer_state_.header.stamp = this->now();
                 tracer_state_pub_->publish(tracer_state_);
                 std::cout << "go to initial pose" << std::endl;
             }
