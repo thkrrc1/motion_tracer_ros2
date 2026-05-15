@@ -37,7 +37,7 @@ void LowerController::sendJointAngles() {
 }
 
 void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
-    if ((_data->buttons[4] == 1 || _data->buttons[6] == 1) && _data->axes[2] != 0) {
+    if ((_data->axes[4] == 1 || _data->buttons[6] == 1) && _data->axes[2] != 0) {
         joint_angles_["ankle_joint"] -= (_data->axes[2] * lifter_ratio_);
         joint_angles_["knee_joint"] += (_data->axes[2] * lifter_ratio_);
 
@@ -55,7 +55,7 @@ void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
         sendJointAngles();
     }
 
-    if ((_data->buttons[4] == 1 || _data->buttons[6] == 1) && (std::abs(_data->axes[0]) > 0.05 || std::abs(_data->axes[1]) > 0.05 || std::abs(_data->axes[3]) > 0.05)) {
+    if ((_data->axes[4] == 1 || _data->buttons[6] == 1) && (std::abs(_data->axes[0]) > 0.05 || std::abs(_data->axes[1]) > 0.05 || std::abs(_data->axes[3]) > 0.05)) {
         cmd_vel_.linear.x = 0;
         cmd_vel_.linear.y = 0;
         cmd_vel_.linear.z = 0;

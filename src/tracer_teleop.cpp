@@ -139,11 +139,11 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
             position_[i] = (tracer_data_[i*2+5] << 8) + tracer_data_[i*2+6];
         }
 
-        std::cout << "--------Tracer Position--------" << std::endl;
-        for(int i=0;i<30;++i) {
-            std::cout << "position_["<<i<<"] = " << position_[i]<< std::endl;
-        }
-        std::cout << "-------------------------------" << std::endl;
+        // std::cout << "--------Tracer Position--------" << std::endl;
+        // for(int i=0;i<30;++i) {
+        //     std::cout << "position_["<<i<<"] = " << position_[i]<< std::endl;
+        // }
+        // std::cout << "-------------------------------" << std::endl;
 
         // waist
         if (-900 <= position_[0] && position_[0] <= 900) {
@@ -243,15 +243,22 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
         } else if (1800 < position_[7] && position_[7] < 3600) {
             tracer_state_.position[15] = position_[7] - 3600;
         }
-        // l_thumb_joint
-        if (0 <= position_[8] && position_[8] < 450) {
-            tracer_state_.position[16] = position_[8];
-        } else if (3490 < position_[8] && position_[8] < 3600) {
-            tracer_state_.position[16] = position_[8] - 3600;
+        // l_thumb_joint　左手のみ理論反転している
+        if (0 <= position_[8] && position_[8] < 110) {
+            tracer_state_.position[16] = - position_[8];
+        } else if (3150 < position_[8] && position_[8] < 3600) {
+            tracer_state_.position[16] = 3600 - position_[8];
         }
 
         tracer_state_.header.stamp = this->now();
         tracer_state_pub_->publish(tracer_state_);
+
+        // std::cout << "--------Joy Data--------" << std::endl;
+        // for(int i=53;i<59;++i) {
+        //     std::cout << "data["<<i<<"] = " << static_cast<int>(tracer_data_[i])<< std::endl;
+        // }
+        // std::cout << "-------------------------------" << std::endl;
+
 
         //////joy sticks & buttons//////
         if (tracer_data_[55] > 122 && tracer_data_[55] < 132 ) {
@@ -267,13 +274,21 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
             tracer_data_[58] = 127;
         }
 
-        //left joy_stick
-        joy_.axes[0] = static_cast<float>(127 - tracer_data_[55]) / 127;
-        joy_.axes[1] = static_cast<float>(127 - tracer_data_[56]) / 127;
+        // //left joy_stick
+        // joy_.axes[0] = static_cast<float>(127 - tracer_data_[55]) / 127;
+        // joy_.axes[1] = static_cast<float>(127 - tracer_data_[56]) / 127;
 
-        //right joy_stick
-        joy_.axes[3] = static_cast<float>(127 - tracer_data_[57]) / 127;
-        joy_.axes[2] = static_cast<float>(127 - tracer_data_[58]) / 127;
+        // left joy_stick(暫定対応)
+        joy_.axes[1] = static_cast<float>(tracer_data_[55] - 127) / 127;
+        joy_.axes[0] = static_cast<float>(tracer_data_[56] - 127) / 127;
+
+        // //right joy_stick
+        // joy_.axes[3] = static_cast<float>(127 - tracer_data_[57]) / 127;
+        // joy_.axes[2] = static_cast<float>(127 - tracer_data_[58]) / 127;
+
+        //right joy_stick(暫定対応)
+        joy_.axes[2] = static_cast<float>(tracer_data_[57] - 127) / 127;
+        joy_.axes[3] = static_cast<float>(tracer_data_[58] - 127) / 127;
 
         //Left Hand
         switch (tracer_data_[53]) {
@@ -286,11 +301,11 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
                 joy_.axes[5] = 0;
                 break;
             case 160:
-                joy_.axes[4] = 2; //左右同時押し。elecomパッドだと存在しない
+                joy_.axes[4] = 0;
                 joy_.axes[5] = 0;
                 break;
             default:
-                joy_.axes[4] = 0;
+                joy_.axes[4] = 2; //左右同時押し。elecomパッドだと存在しない
                 joy_.axes[5] = 0;
                 break;
         }
@@ -304,22 +319,28 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
                 joy_.buttons[3] = 1;
                 break;
             case 128:
-                joy_.buttons[0] = 1;
+                joy_.buttons[0] = 0;
                 joy_.buttons[1] = 0;
                 joy_.buttons[2] = 0;
-                joy_.buttons[3] = 0;
+                joy_.buttons[3] = 1;
                 break;
-            case 160:
-                joy_.buttons[0] = 1;
+            // case 160:
+            //     joy_.buttons[0] = 0;
+            //     joy_.buttons[1] = 0;
+            //     joy_.buttons[2] = 0;
+            //     joy_.buttons[3] = 0;
+            //     break;
+            case 160: //(暫定対応)
+                joy_.buttons[0] = 0;
                 joy_.buttons[1] = 0;
                 joy_.buttons[2] = 0;
                 joy_.buttons[3] = 1;
                 break;
             default:
-                joy_.buttons[0] = 0;
+                joy_.buttons[0] = 1;
                 joy_.buttons[1] = 0;
                 joy_.buttons[2] = 0;
-                joy_.buttons[3] = 0;
+                joy_.buttons[3] = 1;
                 break;
         }
 

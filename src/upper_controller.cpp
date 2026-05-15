@@ -153,7 +153,8 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
 }
 
 double UpperController::calcHandAngle(double _position, double offset){
-    return (-0.071 * pow(_position, 2.0) + 5.093 * _position + 64.62) / 1000.0 + offset;
+    return (_position + 11) / 56  * 0.15 - 0.06462 + offset;
+    // return (-0.071 * pow(_position, 2.0) + 5.093 * _position + 64.62) / 1000.0 + offset;
 }
 
 void UpperController::sendJointAngles() {
@@ -326,7 +327,7 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
         joint_angles_["neck_r_joint"] = 0;
         joint_angles_["neck_p_joint"] = neck_offset_*(M_PI/180);
 
-        if(_data->buttons[3] == 0) {
+        if(_data->buttons[3] == 1) {
             sendJointAngles();
         }
     }
