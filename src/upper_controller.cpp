@@ -6,7 +6,7 @@ UpperController::UpperController() :
     controller_cycle_ = (1.0/controller_rate_);
     move_time_ = controller_cycle_;
 
-    this->declare_parameter<std::string>("neck_movement", "");
+    this->declare_parameter<std::string>("neck_movement", "increment");
     this->declare_parameter<int>("neck_offset", 0);
     this->declare_parameter<bool>("neck_reverse", false);
     this->declare_parameter<bool>("neck_auto", false);
@@ -129,10 +129,8 @@ void UpperController::graspControl(std::string _position, std::string _pose) {
 }
 
 void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _tracer_data) {
-    joint_angles_["waist_y_joint"] = _tracer_data.position[0] / 10.0 * deg2Rad;
-
     joint_angles_["r_shoulder_p_joint"] = _tracer_data.position[1] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["r_shoulder_r_joint"] = _tracer_data.position[2] / 10.0 * deg2Rad * -1.0;
+    joint_angles_["r_shoulder_r_joint"] = (_tracer_data.position[2] / 10.0 - 10) * deg2Rad * -1.0;
     joint_angles_["r_shoulder_y_joint"] = _tracer_data.position[3] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_elbow_joint"] = _tracer_data.position[4] / 10.0 * deg2Rad;
     joint_angles_["r_wrist_y_joint"] = _tracer_data.position[5] / 10.0 * deg2Rad * -1.0;
@@ -141,7 +139,7 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["r_thumb_joint"] = calcHandAngle(_tracer_data.position[8] / 10.0, 0.0);
 
     joint_angles_["l_shoulder_p_joint"] = _tracer_data.position[9] / 10.0 * deg2Rad;
-    joint_angles_["l_shoulder_r_joint"] = _tracer_data.position[10] / 10.0 * deg2Rad * -1.0;
+    joint_angles_["l_shoulder_r_joint"] = (_tracer_data.position[10] / 10.0  + 10) * deg2Rad * -1.0;
     joint_angles_["l_shoulder_y_joint"] = _tracer_data.position[11] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_elbow_joint"] = _tracer_data.position[12] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_y_joint"] = _tracer_data.position[13] / 10.0 * deg2Rad * -1.0;
@@ -154,7 +152,6 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
 
 double UpperController::calcHandAngle(double _position, double offset){
     return (_position + 11) / 56  * 0.15 - 0.06462 + offset;
-    // return (-0.071 * pow(_position, 2.0) + 5.093 * _position + 64.62) / 1000.0 + offset;
 }
 
 void UpperController::sendJointAngles() {
@@ -211,17 +208,6 @@ void UpperController::sendJointAngles() {
     rhand_traj_pub_->publish(rhand_msg);
     lhand_traj_pub_->publish(lhand_msg);
 
-    // // HandControl NonRT
-    // if (joint_angles_["r_thumb_joint"] < 0.0 && r_hand_state == "open") {
-    //     graspControl("right","grasp");
-    // } else if (joint_angles_["r_thumb_joint"] >= 0.0 && r_hand_state == "close") {
-    //     graspControl("right","release");
-    // }
-    // if( joint_angles_["l_thumb_joint"] > 0.0 && l_hand_state == "open") {
-    //     graspControl("left","grasp");
-    // } else if (joint_angles_["l_thumb_joint"] <= 0.0 && l_hand_state == "close") {
-    //     graspControl("left","release");
-    // }
 }
 
 void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
@@ -242,15 +228,15 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
     // for waist pitch & roll
     if (_data->axes[4] == 0 && _data->buttons[3] == 1 && (std::abs(_data->axes[0]) > 0.05 || std::abs(_data->axes[1]) > 0.05)) {
         if (neck_movement_ == "absolute") {
-            joint_angles_["waist_r_joint"] = (_data->axes[0] * 1) ;
+            joint_angles_["waist_y_joint"] = (_data->axes[0] * 1) ;
             joint_angles_["waist_p_joint"] = sign * (_data->axes[1] * -1) ;
         } else if (neck_movement_ == "increment") {
-            joint_angles_["waist_r_joint"] -= sign * (_data->axes[0] * 0.005);
-            joint_angles_["waist_p_joint"] -= sign * (_data->axes[1] * 0.01);
+            joint_angles_["waist_y_joint"] += sign * (_data->axes[0] * 0.05);
+            joint_angles_["waist_p_joint"] -= sign * (_data->axes[1] * 0.05);
         }
     } else {
         if (neck_movement_ == "absolute") {
-            joint_angles_["waist_r_joint"] = 0;
+            joint_angles_["waist_y_joint"] = 0;
             joint_angles_["waist_p_joint"] = 0;
         }
     }
@@ -289,10 +275,10 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
     }
 
     // set angle limit in joy stick data
-    if (joint_angles_["waist_r_joint"] > waist_r_upper_limt) {
-        joint_angles_["waist_r_joint"] = waist_r_upper_limt;
-    } else if (joint_angles_["waist_r_joint"] < waist_r_lower_limt) {
-        joint_angles_["waist_r_joint"] = waist_r_lower_limt;
+    if (joint_angles_["waist_y_joint"] > waist_y_upper_limt) {
+        joint_angles_["waist_y_joint"] = waist_y_upper_limt;
+    } else if (joint_angles_["waist_y_joint"] < waist_y_lower_limt) {
+        joint_angles_["waist_y_joint"] = waist_y_lower_limt;
     }
 
     if (joint_angles_["waist_p_joint"] > waist_p_upper_limt) {
@@ -321,8 +307,9 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
 
     // set initial pose origin or MC
     if (_data->axes[4] == -1 || _data->axes[4] == 2 || _data->buttons[0] == 1) {
-        joint_angles_["waist_r_joint"] = 0;
+        joint_angles_["waist_y_joint"] = 0;
         joint_angles_["waist_p_joint"] = 0;
+        joint_angles_["waist_r_joint"] = 0;
         joint_angles_["neck_y_joint"] = 0;
         joint_angles_["neck_r_joint"] = 0;
         joint_angles_["neck_p_joint"] = neck_offset_*(M_PI/180);

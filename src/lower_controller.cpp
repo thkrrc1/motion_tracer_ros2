@@ -1,7 +1,7 @@
 #include "motion_tracer_ros2/lower_controller.hpp"
 
 LowerController::LowerController() :
-    Node("lower_controller_node"),lifter_ratio_(0.01) {
+    Node("lower_controller_node"),lifter_ratio_(0.03) {
     controller_rate_ = 50;
     controller_cycle_ = (1.0/controller_rate_);
     move_time_ = controller_cycle_;
@@ -67,10 +67,10 @@ void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
             cmd_vel_.linear.x = 0.5 * _data->axes[1];
         }
         if (_data->axes[3] != 0) {
-            cmd_vel_.linear.y = 0.1 * _data->axes[3];
+            cmd_vel_.linear.y = 0.5 * _data->axes[3];
         }
         if (_data->axes[0] != 0) {
-            cmd_vel_.angular.z = 0.3 * _data->axes[0];
+            cmd_vel_.angular.z = 0.5 * _data->axes[0];
         }
         cmd_vel_pub_->publish(cmd_vel_);
     }

@@ -74,6 +74,8 @@ private:
     const float waist_p_lower_limt = -0.16;
     const float waist_r_upper_limt = 0.12;
     const float waist_r_lower_limt = -0.12;
+    const float waist_y_upper_limt = 2.09;
+    const float waist_y_lower_limt = -2.09;
 
     //////////////////////////////
     // GUI parameters
