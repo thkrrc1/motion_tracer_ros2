@@ -64,10 +64,10 @@ void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
         cmd_vel_.angular.z = 0;
 
         if (_data->axes[1] != 0) {
-            cmd_vel_.linear.x = 0.5 * _data->axes[1];
+            cmd_vel_.linear.x = 0.3 * _data->axes[1];
         }
         if (_data->axes[3] != 0) {
-            cmd_vel_.linear.y = 0.5 * _data->axes[3];
+            cmd_vel_.linear.y = 0.2 * _data->axes[3];
         }
         if (_data->axes[0] != 0) {
             cmd_vel_.angular.z = 0.5 * _data->axes[0];
