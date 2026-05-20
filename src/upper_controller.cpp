@@ -151,7 +151,11 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
 }
 
 double UpperController::calcHandAngle(double _position, double offset){
-    return (_position + 11) / 56  * 0.15 - 0.06462 + offset;
+    // // (試作1暫定対応)
+    // // (リーダー現在角度 - リーダー閉じきった際の角度) / リーダー全移動角度量 * フォロワー全移動角度量 + フォロワー閉じきった際の角度 + offset;
+    // return (_position + 11) / 56  * 0.15 - 0.06462 + offset;
+    // (試作2暫定対応)
+    return (_position + 45) / 90 * 0.15 - 0.06462 + offset;
 }
 
 void UpperController::sendJointAngles() {
@@ -226,7 +230,7 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
     }
 
     // for waist pitch & roll
-    if (_data->axes[4] == 0 && _data->buttons[3] == 1 && (std::abs(_data->axes[0]) > 0.05 || std::abs(_data->axes[1]) > 0.05)) {
+    if (_data->axes[4] == 0 && (std::abs(_data->axes[0]) > 0.05 || std::abs(_data->axes[1]) > 0.05)) {
         if (neck_movement_ == "absolute") {
             joint_angles_["waist_y_joint"] = (_data->axes[0] * 1) ;
             joint_angles_["waist_p_joint"] = sign * (_data->axes[1] * -1) ;
@@ -242,7 +246,7 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
     }
 
     //for neck pitch & roll
-    if (_data->axes[4] == 0 &&_data->buttons[3] == 1 &&  (std::abs(_data->axes[3]) > 0.05 || std::abs(_data->axes[2]) > 0.05)) {
+    if (_data->axes[4] == 0 && (std::abs(_data->axes[3]) > 0.05 || std::abs(_data->axes[2]) > 0.05)) {
         if(neck_movement_ == "absolute") {
             joint_angles_["neck_y_joint"] = (_data->axes[3] * 2);
             joint_angles_["neck_p_joint"] = neck_offset_*(M_PI/180) + sign * (_data->axes[2] * -2);
@@ -314,9 +318,7 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
         joint_angles_["neck_r_joint"] = 0;
         joint_angles_["neck_p_joint"] = neck_offset_*(M_PI/180);
 
-        if(_data->buttons[3] == 1) {
-            sendJointAngles();
-        }
+        sendJointAngles();
     }
 }
 
