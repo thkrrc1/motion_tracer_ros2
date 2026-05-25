@@ -135,7 +135,7 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["r_elbow_joint"] = _tracer_data.position[4] / 10.0 * deg2Rad;
     joint_angles_["r_wrist_y_joint"] = _tracer_data.position[5] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_wrist_r_joint"] = _tracer_data.position[6] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["r_wrist_p_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad * -1.0;
+    joint_angles_["r_wrist_p_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad;
     joint_angles_["r_thumb_joint"] = calcHandAngle(_tracer_data.position[8] / 10.0, 0.0);
 
     joint_angles_["l_shoulder_p_joint"] = _tracer_data.position[9] / 10.0 * deg2Rad;
@@ -144,7 +144,7 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["l_elbow_joint"] = _tracer_data.position[12] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_y_joint"] = _tracer_data.position[13] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_r_joint"] = _tracer_data.position[14] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["l_wrist_p_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad;
+    joint_angles_["l_wrist_p_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_thumb_joint"] = calcHandAngle(_tracer_data.position[16] / 10.0, 0.0);
 
     sendJointAngles();
