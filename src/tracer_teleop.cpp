@@ -295,9 +295,13 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
         // joy_.axes[0] = static_cast<float>(127 - tracer_data_[55]) / 127;
         // joy_.axes[1] = static_cast<float>(127 - tracer_data_[56]) / 127;
 
-        // left joy_stick(試作1暫定対応)
-        joy_.axes[1] = static_cast<float>(tracer_data_[55] - 127) / 127;
-        joy_.axes[0] = static_cast<float>(tracer_data_[56] - 127) / 127;
+        // // left joy_stick(試作1暫定対応)
+        // joy_.axes[1] = static_cast<float>(tracer_data_[55] - 127) / 127;
+        // joy_.axes[0] = static_cast<float>(tracer_data_[56] - 127) / 127;
+
+        // left joy_stick(試作2暫定対応)
+        joy_.axes[1] = static_cast<float>(127 - tracer_data_[55]) / 127;
+        joy_.axes[0] = static_cast<float>(127 - tracer_data_[56]) / 127;
 
         // //right joy_stick
         // joy_.axes[3] = static_cast<float>(127 - tracer_data_[57]) / 127;
