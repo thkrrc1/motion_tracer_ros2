@@ -73,4 +73,16 @@ def generate_launch_description():
     )
     ld.add_action(data_converter_launch)
 
+    # camera bringup
+    camera_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                FindPackageShare('usb_cam'),
+                'launch',
+                'camera.launch.py'
+            ])
+        )
+    )
+    ld.add_action(camera_launch)
+
     return ld
