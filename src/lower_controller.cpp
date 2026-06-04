@@ -2,7 +2,7 @@
 
 LowerController::LowerController() :
     Node("lower_controller_node"),lifter_ratio_(0.03) {
-    controller_rate_ = 50;
+    controller_rate_ = 100;
     controller_cycle_ = (1.0/controller_rate_);
     move_time_ = controller_cycle_;
 

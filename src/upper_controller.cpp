@@ -2,7 +2,7 @@
 
 UpperController::UpperController() : 
     Node("upper_controller_node"),r_hand_state("open"),l_hand_state("open") {
-    controller_rate_ = 50;
+    controller_rate_ = 100;
     controller_cycle_ = (1.0/controller_rate_);
     move_time_ = controller_cycle_;
 
@@ -136,6 +136,7 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["r_wrist_y_joint"] = _tracer_data.position[5] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_wrist_r_joint"] = _tracer_data.position[6] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_wrist_p_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad;
+    // (試作2暫定対応)
     joint_angles_["r_thumb_joint"] = calcHandAngle(_tracer_data.position[8] / 10.0, 0.0);
 
     joint_angles_["l_shoulder_p_joint"] = _tracer_data.position[9] / 10.0 * deg2Rad;
@@ -145,7 +146,13 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["l_wrist_y_joint"] = _tracer_data.position[13] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_r_joint"] = _tracer_data.position[14] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_p_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["l_thumb_joint"] = calcHandAngle(_tracer_data.position[16] / 10.0, 0.0);
+    // (試作2暫定対応)
+    // joint_angles_["l_thumb_joint"] = calcHandAngle(_tracer_data.position[16] / 10.0, 0.0);
+
+    // TRX対応
+    // joint_angles_["r_thumb_joint"] = (_tracer_data.position[8] / 10.0 * deg2Rad + 1.0) * 1.0;
+    // joint_angles_["l_thumb_joint"] = (_tracer_data.position[16] / 10.0 * deg2Rad + 0.8) * -1.0;
+    joint_angles_["l_thumb_joint"] = -((_tracer_data.position[16] / 10.0 + 45) / 90 * 1.81 - 0.87);
 
     sendJointAngles();
 }
