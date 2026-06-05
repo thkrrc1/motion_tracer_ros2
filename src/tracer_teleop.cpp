@@ -37,7 +37,7 @@ TracerTeleop::TracerTeleop() :
 
     wheel_stop_flag_ = true;
 
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(20),std::bind(&TracerTeleop::processLoop, this));
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(10),std::bind(&TracerTeleop::processLoop, this));
 
     running_ = true;
     tx_thread_ = std::thread(&TracerTeleop::txLoop, this);
@@ -62,7 +62,7 @@ void TracerTeleop::currentCallback(const aero_controller_msgs::msg::Current& _cu
 
 void TracerTeleop::txLoop() {
 
-    rclcpp::WallRate rate(20.0);
+    rclcpp::WallRate rate(10.0);
 
     std::vector<uint8_t> current_copy;
     while(running_) {

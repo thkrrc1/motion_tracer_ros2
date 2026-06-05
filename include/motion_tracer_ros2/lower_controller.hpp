@@ -23,6 +23,7 @@ public:
     void init_follow_joint_trajectory();
     void sendJointAngles();
     void getJoy(const sensor_msgs::msg::Joy::SharedPtr msg);
+    double limitRate(double target, double current, double max_acc, double dt);
 
 private:
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
@@ -50,6 +51,13 @@ private:
     const float knee_lower_limt = -1.57;
 
     float lifter_ratio_;
+
+    double max_linear_acc = 0.3;
+    double max_angular_acc = 0.8;
+    double current_vx_ = 0.0;
+    double current_vy_ = 0.0;
+    double current_wz_ = 0.0;
+    rclcpp::Time last_time_;
 };
 
 #endif
