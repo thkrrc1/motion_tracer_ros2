@@ -148,125 +148,125 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
 
         //////right arm//////
         // r_shoulder_p_joint
-        if (0 <= position_[9] && position_[9] <= 986) {
-            tracer_state_.position[1] = position_[9];
-        } else if (986 < position_[9] && position_[9] <= 1800) {
+        if (0 <= position_[0] && position_[0] <= 986) {
+            tracer_state_.position[1] = position_[0];
+        } else if (986 < position_[0] && position_[0] <= 1800) {
             tracer_state_.position[1] = 986;
         }
         // r_shoulder_r_joint
-        if (0 <= position_[10] && position_[10] <= 900) {
-            tracer_state_.position[2] = position_[10];
-        } else if (900 < position_[10] && position_[10] < 1800) {
+        if (0 <= position_[1] && position_[1] <= 900) {
+            tracer_state_.position[2] = position_[1];
+        } else if (900 < position_[1] && position_[1] < 1800) {
             tracer_state_.position[2] = 900;
         }
         // r_shoulder_y_joint
-        if (0 <= position_[11] && position_[11] <= 1800) {
-            tracer_state_.position[3] = position_[11];
-        } else if (1800 < position_[11] && position_[11] < 3600) {
-            tracer_state_.position[3] = position_[11] - 3600;
+        if (0 <= position_[2] && position_[2] <= 1800) {
+            tracer_state_.position[3] = position_[2];
+        } else if (1800 < position_[2] && position_[2] < 3600) {
+            tracer_state_.position[3] = position_[2] - 3600;
         }
         // r_elbow_joint
-        if (1880 <= position_[12] && position_[12] < 3600) {
-            tracer_state_.position[4] = position_[12] - 3600;
-        } else if (900 < position_[12] && position_[12] < 1880) {
+        if (1880 <= position_[3] && position_[3] < 3600) {
+            tracer_state_.position[4] = position_[3] - 3600;
+        } else if (900 < position_[3] && position_[3] < 1880) {
             tracer_state_.position[4] = -1720;
         }
         // r_wrist_y_joint
-        if (0 <= position_[13] && position_[13] <= 1800) {
-            tracer_state_.position[5] = position_[13];
-        } else if (1800 < position_[13] && position_[13] < 3600) {
-            tracer_state_.position[5] = position_[13] - 3600;
-        }
-        // r_wrist_r_joint
-        if (0 <= position_[14] && position_[14] <= 1800) {
-            tracer_state_.position[6] = position_[14];
-        } else if (1800 < position_[14] && position_[14] < 3600) {
-            tracer_state_.position[6] = position_[14] - 3600;
+        if (0 <= position_[4] && position_[4] <= 1800) {
+            tracer_state_.position[5] = position_[4];
+        } else if (1800 < position_[4] && position_[4] < 3600) {
+            tracer_state_.position[5] = position_[4] - 3600;
         }
         // r_wrist_p_joint
-        if (0 <= position_[15] && position_[15] <= 1800) {
-            tracer_state_.position[7] = position_[15];
-        } else if (1800 < position_[15] && position_[15] < 3600) {
-            tracer_state_.position[7] = position_[15] - 3600;
+        if (0 <= position_[5] && position_[5] <= 1800) {
+            tracer_state_.position[6] = position_[5];
+        } else if (1800 < position_[5] && position_[5] < 3600) {
+            tracer_state_.position[6] = position_[5] - 3600;
+        }
+        // r_wrist_r_joint
+        if (0 <= position_[6] && position_[6] <= 1800) {
+            tracer_state_.position[7] = position_[6];
+        } else if (1800 < position_[6] && position_[6] < 3600) {
+            tracer_state_.position[7] = position_[6] - 3600;
         }
         // // r_thumb_joint(試作1暫定対応)
-        // if (0 <= position_[16] && position_[16] <= 110) {
-        //     tracer_state_.position[8] = position_[16];
-        // } else if (3150 <= position_[16] && position_[16] < 3600) {
-        //     tracer_state_.position[8] = position_[16] - 3600;
-        // } else if (1800 < position_[16] && position_[16] < 3150) {
+        // if (0 <= position_[7] && position_[7] <= 110) {
+        //     tracer_state_.position[8] = position_[7];
+        // } else if (3150 <= position_[7] && position_[7] < 3600) {
+        //     tracer_state_.position[8] = position_[7] - 3600;
+        // } else if (1800 < position_[7] && position_[7] < 3150) {
         //     tracer_state_.position[8] = -450;
-        // } else if (110 < position_[16] && position_[16] <= 1800) {
+        // } else if (110 < position_[7] && position_[7] <= 1800) {
         //     tracer_state_.position[8] = 110;
         // }
         // r_thumb_joint(試作2暫定対応)
-        if (2700 <= position_[16] && position_[16] < 3600) {
-            tracer_state_.position[8] = 3150 - position_[16];
-        } else if (1800 <= position_[16] && position_[16] < 2700) {
+        if (2700 <= position_[7] && position_[7] < 3600) {
+            tracer_state_.position[8] = 3150 - position_[7];
+        } else if (1800 <= position_[7] && position_[7] < 2700) {
             tracer_state_.position[8] = 450;
-        } else if (0 <= position_[16] && position_[16] < 1800) {
+        } else if (0 <= position_[7] && position_[7] < 1800) {
             tracer_state_.position[8] = -450;
         }
 
         //////left arm//////
         // l_shoulder_p_joint
-        if (2614 <= position_[1] && position_[1] < 3600) {
-            tracer_state_.position[9] = position_[1] - 3600;
-        } else if (1800 <= position_[1] && position_[1] < 2614) {
+        if (2614 <= position_[15] && position_[15] < 3600) {
+            tracer_state_.position[9] = position_[15] - 3600;
+        } else if (1800 <= position_[15] && position_[15] < 2614) {
             tracer_state_.position[9] = -986;
         }
         // l_shoulder_r_joint
-        if (2700 <= position_[2] && position_[2] < 3600) {
-            tracer_state_.position[10] = position_[2] - 3600;
-        } else if (1800 <= position_[2] && position_[2] < 2700) {
+        if (2700 <= position_[16] && position_[16] < 3600) {
+            tracer_state_.position[10] = position_[16] - 3600;
+        } else if (1800 <= position_[16] && position_[16] < 2700) {
             tracer_state_.position[10] = -900;
         }
         // l_shoulder_y_joint
-        if (0 <= position_[3] && position_[3] <= 1800) {
-            tracer_state_.position[11] = position_[3];
-        } else if (1800 < position_[3] && position_[3] < 3600) {
-            tracer_state_.position[11] = position_[3] - 3600;
+        if (0 <= position_[17] && position_[17] <= 1800) {
+            tracer_state_.position[11] = position_[17];
+        } else if (1800 < position_[17] && position_[17] < 3600) {
+            tracer_state_.position[11] = position_[17] - 3600;
         }
         // l_elbow_joint
-        if (0 <= position_[4] && position_[4] <= 1720) {
-            tracer_state_.position[12] = position_[4];
-        } else if (1720 < position_[4] && position_[4] < 2700) {
+        if (0 <= position_[18] && position_[18] <= 1720) {
+            tracer_state_.position[12] = position_[18];
+        } else if (1720 < position_[18] && position_[18] < 2700) {
             tracer_state_.position[12] = 1720;
         }
         // l_wrist_y_joint
-        if (0 <= position_[5] && position_[5] <= 1800) {
-            tracer_state_.position[13] = position_[5];
-        } else if (1800 < position_[5] && position_[5] < 3600) {
-            tracer_state_.position[13] = position_[5] - 3600;
-        }
-        // l_wrist_r_joint
-        if (0 <= position_[6] && position_[6] <= 1800) {
-            tracer_state_.position[14] = position_[6];
-        } else if (1800 < position_[6] && position_[6] < 3600) {
-            tracer_state_.position[14] = position_[6] - 3600;
+        if (0 <= position_[19] && position_[19] <= 1800) {
+            tracer_state_.position[13] = position_[19];
+        } else if (1800 < position_[19] && position_[19] < 3600) {
+            tracer_state_.position[13] = position_[19] - 3600;
         }
         // l_wrist_p_joint
-        if (0 <= position_[7] && position_[7] <= 1800) {
-            tracer_state_.position[15] = position_[7];
-        } else if (1800 < position_[7] && position_[7] < 3600) {
-            tracer_state_.position[15] = position_[7] - 3600;
+        if (0 <= position_[20] && position_[20] <= 1800) {
+            tracer_state_.position[14] = position_[20];
+        } else if (1800 < position_[20] && position_[20] < 3600) {
+            tracer_state_.position[14] = position_[20] - 3600;
+        }
+        // l_wrist_r_joint
+        if (0 <= position_[21] && position_[21] <= 1800) {
+            tracer_state_.position[15] = position_[21];
+        } else if (1800 < position_[21] && position_[21] < 3600) {
+            tracer_state_.position[15] = position_[21] - 3600;
         }
         // // l_thumb_joint(試作1暫定対応)
-        // if (0 <= position_[8] && position_[8] <= 110) {
-        //     tracer_state_.position[16] = - position_[8];
-        // } else if (3150 <= position_[8] && position_[8] < 3600) {
-        //     tracer_state_.position[16] = 3600 - position_[8];
-        // } else if (1800 < position_[8] && position_[8] < 3150) {
+        // if (0 <= position_[22] && position_[22] <= 110) {
+        //     tracer_state_.position[16] = - position_[22];
+        // } else if (3150 <= position_[22] && position_[22] < 3600) {
+        //     tracer_state_.position[16] = 3600 - position_[22];
+        // } else if (1800 < position_[22] && position_[22] < 3150) {
         //     tracer_state_.position[16] = 450;
-        // } else if (110 < position_[8] && position_[8] <= 1800) {
+        // } else if (110 < position_[22] && position_[22] <= 1800) {
         //     tracer_state_.position[16] = -110;
         // }
         // l_thumb_joint(試作2暫定対応)
-        if (0 <= position_[8] && position_[8] <= 900) {
-            tracer_state_.position[16] = position_[8] - 450;
-        } else if (900 < position_[8] && position_[8] <= 1800) {
+        if (0 <= position_[22] && position_[22] <= 900) {
+            tracer_state_.position[16] = position_[22] - 450;
+        } else if (900 < position_[22] && position_[22] <= 1800) {
             tracer_state_.position[16] = 450;
-        } else if (1800 < position_[8] && position_[8] < 3600) {
+        } else if (1800 < position_[22] && position_[22] < 3600) {
             tracer_state_.position[16] = -450;
         }
 
