@@ -83,8 +83,8 @@ void TracerTeleop::txLoop() {
         }
 
         if (only_hand_current) {
-            int right_hand_aero_id = 11;
-            int left_hand_aero_id = 26;
+            int right_hand_aero_id = 7;
+            int left_hand_aero_id = 22;
             double scale = 1.0;
 
             uint16_t r_hand_current = static_cast<uint16_t>(current_copy[right_hand_aero_id * 2]) << 8 |
@@ -92,8 +92,8 @@ void TracerTeleop::txLoop() {
             uint16_t l_hand_current = static_cast<uint16_t>(current_copy[left_hand_aero_id * 2]) << 8 |
                                         static_cast<uint16_t>(current_copy[left_hand_aero_id * 2 + 1]);
 
-            currents[16] = r_hand_current * scale;
-            currents[8] = l_hand_current * scale;
+            currents[22] = r_hand_current * scale;
+            currents[7] = l_hand_current * scale;
             
         } else {
             for (unsigned int idx = 0; idx < currents.size(); ++idx) {
