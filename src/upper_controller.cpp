@@ -94,9 +94,9 @@ void UpperController::graspControl(std::string _position, std::string _pose) {
 
     aero_controller_msgs::msg::ScriptReqJNoInterf param;
     if (_position == "right") {
-        param.send_no = 11;
+        param.send_no = 7;
     } else if (_position == "left") {
-        param.send_no = 26;
+        param.send_no = 22;
     }
     if (_pose == "grasp") {
         param.script_no = 2;
