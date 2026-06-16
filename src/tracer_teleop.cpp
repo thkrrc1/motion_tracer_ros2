@@ -92,8 +92,8 @@ void TracerTeleop::txLoop() {
             uint16_t l_hand_current = static_cast<uint16_t>(current_copy[left_hand_aero_id * 2]) << 8 |
                                         static_cast<uint16_t>(current_copy[left_hand_aero_id * 2 + 1]);
 
-            currents[22] = r_hand_current * scale;
-            currents[7] = l_hand_current * scale;
+            currents[7] = r_hand_current * scale;
+            currents[22] = l_hand_current * scale;
             
         } else {
             for (unsigned int idx = 0; idx < currents.size(); ++idx) {
