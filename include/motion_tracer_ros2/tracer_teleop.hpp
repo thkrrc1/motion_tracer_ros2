@@ -41,6 +41,7 @@ private:
     rclcpp::Subscription<aero_controller_msgs::msg::Current>::SharedPtr current_sub_;
 
     std::vector<uint8_t> latest_current_;
+    std::vector<uint16_t> latest_pos;
     std::mutex current_mutex_;
 
     std::thread tx_thread_;

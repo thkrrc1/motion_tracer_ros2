@@ -34,6 +34,7 @@ TracerTeleop::TracerTeleop() :
     position_.resize(30, 0);
 
     latest_current_.resize(60, 0);
+    latest_pos.resize(30, 0);
 
     wheel_stop_flag_ = true;
 
@@ -58,6 +59,10 @@ void TracerTeleop::currentCallback(const aero_controller_msgs::msg::Current& _cu
     for (unsigned int idx = 0; idx < _current_data.data.size(); ++idx) {
         latest_current_[idx] = _current_data.data[idx];
     }
+
+    for (unsigned int idx = 0; idx < _current_data.pos_data.size(); ++idx) {
+        latest_pos[idx] = _current_data.pos_data[idx];
+    }
 }
 
 void TracerTeleop::txLoop() {
@@ -65,13 +70,15 @@ void TracerTeleop::txLoop() {
     rclcpp::WallRate rate(10.0);
 
     std::vector<uint8_t> current_copy;
+    std::vector<uint16_t> pos_copy;
     while(running_) {
         {
             std::lock_guard<std::mutex> lock(current_mutex_);
             current_copy = latest_current_;
+            pos_copy = latest_pos;
         }
 
-        if(current_copy.size()!= 60){
+        if(current_copy.size()!= 60 || pos_copy.size()!=30){
             return;
         }
 
@@ -94,6 +101,10 @@ void TracerTeleop::txLoop() {
 
             currents[7] = r_hand_current * scale;
             currents[22] = l_hand_current * scale;
+
+            // ハンド位置の送信暫定対応
+            currents[28] = pos_copy[right_hand_aero_id];
+            currents[29] = pos_copy[left_hand_aero_id];
             
         } else {
             for (unsigned int idx = 0; idx < currents.size(); ++idx) {
