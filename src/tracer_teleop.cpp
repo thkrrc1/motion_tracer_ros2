@@ -21,7 +21,7 @@ TracerTeleop::TracerTeleop() :
         }
     }
     is_mover_mode = false;
-    on_trace_mode = false;
+    on_tracer_mode = false;
 
     // Publisher
     tracer_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("tracer_states", 1);
@@ -31,6 +31,10 @@ TracerTeleop::TracerTeleop() :
     auto mode_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     tracer_mode_pub_ = this->create_publisher<std_msgs::msg::Bool>("/tracer_mode", mode_qos);
     notifyTracerMode();
+
+    auto on_tracer_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+    on_tracer_pub_ = this->create_publisher<std_msgs::msg::Bool>("/on_tracer", on_tracer_qos);
+    notifyOnTracer();
 
     // Subscriber
     current_sub_ = this->create_subscription<aero_controller_msgs::msg::Current>("/current_controller/current", 1, std::bind(&TracerTeleop::currentCallback, this, std::placeholders::_1));
@@ -356,7 +360,7 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
             joy_.axes[4] = 0;
             joy_.axes[5] = 0;
         }
-        if (on_trace_mode) {
+        if (on_tracer_mode) {
             joy_.buttons[3] = 1;
         } else {
             joy_.buttons[3] = 0;
@@ -376,13 +380,14 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
             }
             notifyTracerMode();
         } else if (foot_val == "b") {
-            if (on_trace_mode) {
+            if (on_tracer_mode) {
                 joy_.buttons[3] = 0;
-                on_trace_mode = false;
+                on_tracer_mode = false;
             } else {
                 joy_.buttons[3] = 1;
-                on_trace_mode = true;
+                on_tracer_mode = true;
             }
+            notifyOnTracer();
         } else if (foot_val == "c") {
             joy_.buttons[0] = 1;
         }
@@ -567,6 +572,12 @@ bool TracerTeleop::getFootPedalInput(std::string& input) {
     input = latest_foot_pedal_input_;
     latest_foot_pedal_input_.clear();
     return true;
+}
+
+void TracerTeleop::notifyOnTracer() {
+    std_msgs::msg::Bool msg;
+    msg.data = on_tracer_mode;
+    on_tracer_pub_->publish(msg);
 }
 
 void TracerTeleop::notifyTracerMode() {

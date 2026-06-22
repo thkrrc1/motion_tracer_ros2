@@ -64,10 +64,12 @@ private:
     std::mutex foot_pedal_input_mutex_;
     std::string latest_foot_pedal_input_;
     bool is_mover_mode;
-    bool on_trace_mode;
+    bool on_tracer_mode;
 
     void notifyTracerMode();
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr tracer_mode_pub_;
+    void notifyOnTracer();
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr on_tracer_pub_;
 
     //////////////////////////////
     // GUI parameters
