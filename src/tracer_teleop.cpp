@@ -4,20 +4,33 @@ TracerTeleop::TracerTeleop() :
     Node("tracer_teleop_node"),init_counter_(0),tracer_mode_(0) {
 
     tracer_ = new tracer::controller::TracerCommand();
-
     if (!tracer_->port_open("/dev/tracer_usb", 460800)) {
         RCLCPP_ERROR(this->get_logger(), "Connection failed");
         rclcpp::shutdown();
         return;
     }
+    wheel_stop_flag_ = true;
 
     this->declare_parameter<std::string>("initial_pose", "");
     initial_pose_ = this->get_parameter("initial_pose").as_string();
+
+    foot_pedal_ = new tracer::controller::FootPedalCommand();
+    if (foot_pedal_enabled) {
+        if (!foot_pedal_->device_open("/dev/input/foot_pedal", true)) {
+            RCLCPP_WARN(this->get_logger(), "Foot pedal monitoring failed to start");
+        }
+    }
+    is_mover_mode = false;
+    on_trace_mode = false;
 
     // Publisher
     tracer_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("tracer_states", 1);
     joy_pub_ = this->create_publisher<sensor_msgs::msg::Joy>("tracer_joy", 1);
     cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", 1);
+
+    auto mode_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+    tracer_mode_pub_ = this->create_publisher<std_msgs::msg::Bool>("/tracer_mode", mode_qos);
+    notifyTracerMode();
 
     // Subscriber
     current_sub_ = this->create_subscription<aero_controller_msgs::msg::Current>("/current_controller/current", 1, std::bind(&TracerTeleop::currentCallback, this, std::placeholders::_1));
@@ -25,32 +38,39 @@ TracerTeleop::TracerTeleop() :
     // JointState初期化
     tracer_state_.name.resize(17);
     tracer_state_.position.resize(17);
-
     tracer_state_.header.frame_id ="tracer_base";
-
+    // Joy初期化
     joy_.axes.resize(6, 0.0);
     joy_.buttons.resize(13, 0);
-
+    // Tracer position初期化
     position_.resize(30, 0);
 
+    //電流値初期化
     latest_current_.resize(60, 0);
     latest_pos.resize(30, 0);
 
-    wheel_stop_flag_ = true;
-
     timer_ = this->create_wall_timer(std::chrono::milliseconds(10),std::bind(&TracerTeleop::processLoop, this));
-
     running_ = true;
     tx_thread_ = std::thread(&TracerTeleop::txLoop, this);
 }
 
 TracerTeleop::~TracerTeleop() {
-    delete tracer_;
-    running_ = false;
+    running_.store(false);
 
     if(tx_thread_.joinable())
     {
         tx_thread_.join();
+    }
+
+    if (foot_pedal_ != nullptr) {
+        foot_pedal_->device_close();
+        delete foot_pedal_;
+        foot_pedal_ = nullptr;
+    }
+
+    if (tracer_ != nullptr) {
+        delete tracer_;
+        tracer_ = nullptr;
     }
 }
 
@@ -119,6 +139,8 @@ void TracerTeleop::txLoop() {
 }
 
 void TracerTeleop::processLoop() {
+    updateFootPedalInput();
+
     std::vector<uint8_t> packet;
 
     int max_process = 20; // 安全上限（暴走防止）
@@ -326,59 +348,140 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
         joy_.axes[2] = static_cast<float>(127 - tracer_data_[57]) / 127;
         joy_.axes[3] = static_cast<float>(127 - tracer_data_[58]) / 127;
 
+        // （foot pedal 有対応）
+        if (is_mover_mode) {
+            joy_.axes[4] = 1;
+            joy_.axes[5] = 0;
+        } else {
+            joy_.axes[4] = 0;
+            joy_.axes[5] = 0;
+        }
+        if (on_trace_mode) {
+            joy_.buttons[3] = 1;
+        } else {
+            joy_.buttons[3] = 0;
+        }
+        joy_.buttons[0] = 0;
+
+        std::string foot_val;
+        getFootPedalInput(foot_val);
+        // std::cout << "latest_foot_pedal_input_ : "<<foot_val << std::endl;
+        if (foot_val == "a") {
+            if (is_mover_mode) {
+                joy_.axes[4] = 0;
+                is_mover_mode = false;
+            } else {
+                joy_.axes[4] = 1;
+                is_mover_mode = true;
+            }
+            notifyTracerMode();
+        } else if (foot_val == "b") {
+            if (on_trace_mode) {
+                joy_.buttons[3] = 0;
+                on_trace_mode = false;
+            } else {
+                joy_.buttons[3] = 1;
+                on_trace_mode = true;
+            }
+        } else if (foot_val == "c") {
+            joy_.buttons[0] = 1;
+        }
+
+        // （foot pedal 有対応）
         //Left Hand
         switch (tracer_data_[53]) {
             case 32:
-                joy_.axes[4] = -1;
-                joy_.axes[5] = 0;
+                joy_.buttons[4] = 0;
+                joy_.buttons[5] = 1;
                 break;
             case 128:
-                joy_.axes[4] = 1;
-                joy_.axes[5] = 0;
+                joy_.buttons[4] = 1;
+                joy_.buttons[5] = 0;
                 break;
             case 160:
-                joy_.axes[4] = 0;
-                joy_.axes[5] = 0;
+                joy_.buttons[4] = 0;
+                joy_.buttons[5] = 0;
                 break;
             default:
-                joy_.axes[4] = 2; //左右同時押し。elecomパッドだと存在しない
-                joy_.axes[5] = 0;
+                joy_.buttons[4] = 1;
+                joy_.buttons[5] = 1;
                 break;
         }
 
         //Right Hand
         switch (tracer_data_[54]) {
             case 32:
-                joy_.buttons[0] = 0;
-                joy_.buttons[1] = 0;
+                joy_.buttons[1] = 1;
                 joy_.buttons[2] = 0;
-                joy_.buttons[3] = 1;
                 break;
             case 128:
-                joy_.buttons[0] = 0;
+                joy_.buttons[1] = 0;
+                joy_.buttons[2] = 1;
+                break;
+            case 160:
                 joy_.buttons[1] = 0;
                 joy_.buttons[2] = 0;
-                joy_.buttons[3] = 1;
                 break;
-            case 160: //(試作2暫定対応)
-                joy_.buttons[0] = 0;
-                joy_.buttons[1] = 0;
-                joy_.buttons[2] = 0;
-                joy_.buttons[3] = 0;
-                break;
-            // case 160: //(試作1暫定対応)
-            //     joy_.buttons[0] = 0;
-            //     joy_.buttons[1] = 0;
-            //     joy_.buttons[2] = 0;
-            //     joy_.buttons[3] = 1;
-            //     break;
             default:
-                joy_.buttons[0] = 1;
-                joy_.buttons[1] = 0;
-                joy_.buttons[2] = 0;
-                joy_.buttons[3] = 1;
+                joy_.buttons[1] = 1;
+                joy_.buttons[2] = 1;
                 break;
         }
+
+        // （foot pedal 無対応）
+        // //Left Hand
+        // switch (tracer_data_[53]) {
+        //     case 32:
+        //         joy_.axes[4] = -1;
+        //         joy_.axes[5] = 0;
+        //         break;
+        //     case 128:
+        //         joy_.axes[4] = 1;
+        //         joy_.axes[5] = 0;
+        //         break;
+        //     case 160:
+        //         joy_.axes[4] = 0;
+        //         joy_.axes[5] = 0;
+        //         break;
+        //     default:
+        //         joy_.axes[4] = 2; //左右同時押し。elecomパッドだと存在しない
+        //         joy_.axes[5] = 0;
+        //         break;
+        // }
+
+        // //Right Hand
+        // switch (tracer_data_[54]) {
+        //     case 32:
+        //         joy_.buttons[0] = 0;
+        //         joy_.buttons[1] = 0;
+        //         joy_.buttons[2] = 0;
+        //         joy_.buttons[3] = 1;
+        //         break;
+        //     case 128:
+        //         joy_.buttons[0] = 0;
+        //         joy_.buttons[1] = 0;
+        //         joy_.buttons[2] = 0;
+        //         joy_.buttons[3] = 1;
+        //         break;
+        //     case 160: //(試作2暫定対応)
+        //         joy_.buttons[0] = 0;
+        //         joy_.buttons[1] = 0;
+        //         joy_.buttons[2] = 0;
+        //         joy_.buttons[3] = 0;
+        //         break;
+        //     // case 160: //(試作1暫定対応)
+        //     //     joy_.buttons[0] = 0;
+        //     //     joy_.buttons[1] = 0;
+        //     //     joy_.buttons[2] = 0;
+        //     //     joy_.buttons[3] = 1;
+        //     //     break;
+        //     default:
+        //         joy_.buttons[0] = 1;
+        //         joy_.buttons[1] = 0;
+        //         joy_.buttons[2] = 0;
+        //         joy_.buttons[3] = 1;
+        //         break;
+        // }
 
         if ((std::abs(joy_.axes[0]) > 0.05 || std::abs(joy_.axes[1]) > 0.05 || std::abs(joy_.axes[3]) > 0.05 || std::abs(joy_.axes[2]) > 0.05) && joy_.axes[4] == 1) {
             joy_.buttons[6] = 1;
@@ -443,6 +546,33 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
         }
         tracer_mode_ = joy_.buttons[3];
     }
+}
+
+void TracerTeleop::updateFootPedalInput() {
+    if (!foot_pedal_enabled || foot_pedal_ == nullptr) {
+        return;
+    }
+
+    std::string input;
+    while (foot_pedal_->get_input(input)) {
+        {
+            std::lock_guard<std::mutex> lock(foot_pedal_input_mutex_);
+            latest_foot_pedal_input_ = input;
+        }
+    }
+}
+
+bool TracerTeleop::getFootPedalInput(std::string& input) {
+    std::lock_guard<std::mutex> lock(foot_pedal_input_mutex_);
+    input = latest_foot_pedal_input_;
+    latest_foot_pedal_input_.clear();
+    return true;
+}
+
+void TracerTeleop::notifyTracerMode() {
+    std_msgs::msg::Bool msg;
+    msg.data = is_mover_mode;
+    tracer_mode_pub_->publish(msg);
 }
 
 int main(int argc, char **argv) {

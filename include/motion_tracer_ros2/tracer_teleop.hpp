@@ -12,6 +12,8 @@
 
 #include "aero_controller_msgs/msg/current.hpp"
 
+#include "std_msgs/msg/bool.hpp"
+
 class TracerTeleop : public rclcpp::Node
 {
 public:
@@ -54,6 +56,18 @@ private:
     bool tracer_mode_;
 
     bool only_hand_current = true;
+
+    tracer::controller::FootPedalCommand *foot_pedal_;
+    void updateFootPedalInput();
+    bool getFootPedalInput(std::string& input);
+    bool foot_pedal_enabled = true;
+    std::mutex foot_pedal_input_mutex_;
+    std::string latest_foot_pedal_input_;
+    bool is_mover_mode;
+    bool on_trace_mode;
+
+    void notifyTracerMode();
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr tracer_mode_pub_;
 
     //////////////////////////////
     // GUI parameters

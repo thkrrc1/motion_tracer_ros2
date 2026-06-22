@@ -180,5 +180,222 @@ void TracerCommand::send_current(const std::vector<uint16_t>& currents) {
     serial_com_.write(packet);
 }
 
+
+
+FootPedalCommunication::FootPedalCommunication() :
+    fd_(-1), running_(false), grab_device_(true){
+}
+
+FootPedalCommunication::~FootPedalCommunication() {
+    closeDevice();
+}
+
+bool FootPedalCommunication::openDevice(const std::string& device_path, bool grab_device) {
+    if (running_.load()) {
+        return true;
+    }
+    device_path_ = device_path;
+    grab_device_ = grab_device;
+    running_.store(true);
+    receive_thread_ = std::thread(&FootPedalCommunication::receiveLoop, this);
+    return true;
+}
+
+void FootPedalCommunication::closeDevice() {
+    running_.store(false);
+
+    if (receive_thread_.joinable()) {
+        receive_thread_.join();
+    }
+
+    closeFileDescriptor();
+}
+
+bool FootPedalCommunication::getInput(std::string& input) {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+
+    if (input_queue_.empty()) {
+        return false;
+    }
+
+    input = input_queue_.front();
+    input_queue_.pop();
+    return true;
+}
+
+bool FootPedalCommunication::getLatestInput(std::string& input) {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+
+    if (latest_input_.empty()) {
+        return false;
+    }
+
+    input = latest_input_;
+    return true;
+}
+
+bool FootPedalCommunication::openOnce() {
+    fd_ = ::open(device_path_.c_str(), O_RDONLY | O_NONBLOCK);
+    if (fd_ < 0) {
+        return false;
+    }
+
+    if (grab_device_) {
+        if (::ioctl(fd_, EVIOCGRAB, 1) < 0) {
+            std::cerr << "EVIOCGRAB failed for foot pedal: "
+                      << std::strerror(errno) << std::endl;
+        }
+    }
+
+    return true;
+}
+
+void FootPedalCommunication::closeFileDescriptor() {
+    if (fd_ >= 0) {
+        if (grab_device_) {
+            (void)::ioctl(fd_, EVIOCGRAB, 0);
+        }
+        ::close(fd_);
+        fd_ = -1;
+    }
+}
+
+void FootPedalCommunication::receiveLoop() {
+    while (running_.load()) {
+        if (fd_ < 0) {
+            if (!openOnce()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                continue;
+            }
+        }
+
+        pollfd pfd{};
+        pfd.fd = fd_;
+        pfd.events = POLLIN;
+
+        const int poll_ret = ::poll(&pfd, 1, 100);
+
+        if (!running_.load()) {
+            break;
+        }
+
+        if (poll_ret < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            closeFileDescriptor();
+            continue;
+        }
+
+        if (poll_ret == 0) {
+            continue;
+        }
+
+        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            closeFileDescriptor();
+            continue;
+        }
+
+        if (pfd.revents & POLLIN) {
+            readAvailableEvents();
+        }
+    }
+
+    closeFileDescriptor();
+}
+
+void FootPedalCommunication::readAvailableEvents() {
+    while (running_.load()) {
+        input_event ev{};
+        const ssize_t n = ::read(fd_, &ev, sizeof(ev));
+
+        if (n == static_cast<ssize_t>(sizeof(ev))) {
+            handleInputEvent(ev.type, ev.code, ev.value);
+            continue;
+        }
+
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            closeFileDescriptor();
+            break;
+        }
+
+        if (n == 0) {
+            closeFileDescriptor();
+            break;
+        }
+
+        break;
+    }
+}
+
+void FootPedalCommunication::handleInputEvent(uint16_t type, uint16_t code, int32_t value) {
+    if (type != EV_KEY) {
+        return;
+    }
+
+    const std::string base = keyCodeToOutput(code);
+    if (base.empty()) {
+        return;
+    }
+
+    // Linux input EV_KEY values:
+    //   0: release, 1: press, 2: auto-repeat
+    if (value == 1) {
+        pushInput(base);
+    }
+}
+
+std::string FootPedalCommunication::keyCodeToOutput(uint16_t code) const {
+    switch (code) {
+        case KEY_A:
+            return "a";
+        case KEY_B:
+            return "b";
+        case KEY_C:
+            return "c";
+        default:
+            return "";
+    }
+}
+
+void FootPedalCommunication::pushInput(const std::string& input) {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+    latest_input_ = input;
+    input_queue_.push(input);
+}
+
+
+FootPedalCommand::FootPedalCommand() :
+    is_open_(false) {
+}
+
+FootPedalCommand::~FootPedalCommand() {
+    device_close();
+}
+
+bool FootPedalCommand::device_open(const std::string& device_path, bool grab_device) {
+    is_open_ = foot_pedal_com_.openDevice(device_path, grab_device);
+    return is_open_;
+}
+
+void FootPedalCommand::device_close() {
+    foot_pedal_com_.closeDevice();
+    is_open_ = false;
+}
+
+bool FootPedalCommand::get_input(std::string& input) {
+    return foot_pedal_com_.getInput(input);
+}
+
+bool FootPedalCommand::get_latest_input(std::string& input) {
+    return foot_pedal_com_.getLatestInput(input);
+}
+
 } // namespace controller
 } // namespace tracer

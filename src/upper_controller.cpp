@@ -216,24 +216,36 @@ void UpperController::sendJointAngles() {
     };
     lhand_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
 
-    rarm_traj_pub_->publish(rarm_msg);
-    larm_traj_pub_->publish(larm_msg);
+    if (send_angle_r_arm) {
+        rarm_traj_pub_->publish(rarm_msg);
+    }
+    if (send_angle_l_arm) {
+        larm_traj_pub_->publish(larm_msg);
+    }
     waist_traj_pub_->publish(waist_msg);
     head_traj_pub_->publish(head_msg);
     // 新ハンド
-    rhand_traj_pub_->publish(rhand_msg);
-    // lhand_traj_pub_->publish(lhand_msg);
+    if (send_angle_r_hand) {
+        rhand_traj_pub_->publish(rhand_msg);
+    }
+    if (send_angle_l_hand) {
+        // lhand_traj_pub_->publish(lhand_msg);
+    }
 
     // TRX
-    // if (joint_angles_["r_thumb_joint"] < 0.0 && r_hand_state == "open") {
-    //     graspControl("right","grasp");
-    // } else if (joint_angles_["r_thumb_joint"] >= 0.0 && r_hand_state == "close") {
-    //     graspControl("right","release");
+    // if (send_angle_r_hand) {
+        // if (joint_angles_["r_thumb_joint"] < 0.0 && r_hand_state == "open") {
+        //     graspControl("right","grasp");
+        // } else if (joint_angles_["r_thumb_joint"] >= 0.0 && r_hand_state == "close") {
+        //     graspControl("right","release");
+        // }
     // }
-    if( joint_angles_["l_thumb_joint"] > 0.0 && l_hand_state == "open") {
-        graspControl("left","grasp");
-    } else if (joint_angles_["l_thumb_joint"] <= 0.0 && l_hand_state == "close") {
-        graspControl("left","release");
+    if (send_angle_l_hand) {
+        if( joint_angles_["l_thumb_joint"] > 0.0 && l_hand_state == "open") {
+            graspControl("left","grasp");
+        } else if (joint_angles_["l_thumb_joint"] <= 0.0 && l_hand_state == "close") {
+            graspControl("left","release");
+        }
     }
 }
 
@@ -333,7 +345,7 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
     }
 
     // set initial pose origin or MC
-    if (_data->axes[4] == -1 || _data->axes[4] == 2 || _data->buttons[0] == 1) {
+    if (_data->buttons[0] == 1) {
         joint_angles_["waist_y_joint"] = 0;
         joint_angles_["waist_p_joint"] = 0;
         joint_angles_["waist_r_joint"] = 0;
@@ -342,6 +354,31 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
         joint_angles_["neck_p_joint"] = neck_offset_*(M_PI/180);
 
         sendJointAngles();
+    }
+
+    if (_data->buttons[1] == 0) {
+        send_angle_r_hand = true;
+    }
+    if (_data->buttons[1] == 1){
+        send_angle_r_hand = false;
+    }
+    if (_data->buttons[2] == 0) {
+        send_angle_r_arm = true;
+    }
+    if (_data->buttons[2] == 1){
+        send_angle_r_arm = false;
+    }
+    if (_data->buttons[4] == 0) {
+        send_angle_l_hand = true;
+    }
+    if (_data->buttons[4] == 1){
+        send_angle_l_hand = false;
+    }
+    if (_data->buttons[5] == 0) {
+        send_angle_l_arm = true;
+    }
+    if (_data->buttons[5] == 1){
+        send_angle_l_arm = false;
     }
 }
 
