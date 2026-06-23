@@ -4,7 +4,7 @@ UpperController::UpperController() :
     Node("upper_controller_node"),r_hand_state("open"),l_hand_state("open") {
     controller_rate_ = 100;
     controller_cycle_ = (1.0/controller_rate_);
-    move_time_ = controller_cycle_;
+    move_time_ = 0.03;
 
     this->declare_parameter<std::string>("neck_movement", "increment");
     this->declare_parameter<int>("neck_offset", 0);
@@ -15,8 +15,10 @@ UpperController::UpperController() :
     neck_reverse_ = this->get_parameter("neck_reverse").as_bool();
     neck_auto_ = this->get_parameter("neck_auto").as_bool();
 
-    tracer_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/tracer_states", 1, std::bind(&UpperController::tracerStateCallback, this, std::placeholders::_1));
-    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", 1, std::bind(&UpperController::getJoy, this, std::placeholders::_1));
+    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile().lifespan(std::chrono::milliseconds(100));
+
+    tracer_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/tracer_states", teleop_qos, std::bind(&UpperController::tracerStateCallback, this, std::placeholders::_1));
+    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", teleop_qos, std::bind(&UpperController::getJoy, this, std::placeholders::_1));
 
     grasp_client_ = this->create_client<aero_controller_msgs::srv::RunScript>("/aero_controller/run_script");
 
@@ -179,7 +181,7 @@ void UpperController::sendJointAngles() {
         joint_angles_["r_wrist_r_joint"],
         joint_angles_["r_wrist_p_joint"]
     };
-    rarm_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    rarm_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(move_time_);
 
     larm_msg.points[0].positions = {
         joint_angles_["l_shoulder_p_joint"],
@@ -190,31 +192,31 @@ void UpperController::sendJointAngles() {
         joint_angles_["l_wrist_r_joint"],
         joint_angles_["l_wrist_p_joint"]
     };
-    larm_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    larm_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(move_time_);
 
     waist_msg.points[0].positions = {
         joint_angles_["waist_y_joint"],
         joint_angles_["waist_p_joint"],
         joint_angles_["waist_r_joint"]   
     };
-    waist_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    waist_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(move_time_);
 
     head_msg.points[0].positions = {
         joint_angles_["neck_y_joint"],
         joint_angles_["neck_p_joint"],
         joint_angles_["neck_r_joint"]
     };
-    head_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    head_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(move_time_);
 
     rhand_msg.points[0].positions = {
         joint_angles_["r_thumb_joint"]
     };
-    rhand_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    rhand_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(move_time_);
 
     lhand_msg.points[0].positions = {
         joint_angles_["l_thumb_joint"]
     };
-    lhand_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    lhand_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(move_time_);
 
     if (send_angle_r_arm) {
         rarm_traj_pub_->publish(rarm_msg);

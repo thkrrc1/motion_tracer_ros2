@@ -23,10 +23,12 @@ TracerTeleop::TracerTeleop() :
     is_mover_mode = false;
     on_tracer_mode = false;
 
+    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile().lifespan(std::chrono::milliseconds(100));
+
     // Publisher
-    tracer_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("tracer_states", 1);
-    joy_pub_ = this->create_publisher<sensor_msgs::msg::Joy>("tracer_joy", 1);
-    cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", 1);
+    tracer_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("tracer_states", teleop_qos);
+    joy_pub_ = this->create_publisher<sensor_msgs::msg::Joy>("tracer_joy", teleop_qos);
+    cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", teleop_qos);
 
     auto mode_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     tracer_mode_pub_ = this->create_publisher<std_msgs::msg::Bool>("/tracer_mode", mode_qos);
@@ -37,7 +39,7 @@ TracerTeleop::TracerTeleop() :
     notifyOnTracer();
 
     // Subscriber
-    current_sub_ = this->create_subscription<aero_controller_msgs::msg::Current>("/current_controller/current", 1, std::bind(&TracerTeleop::currentCallback, this, std::placeholders::_1));
+    current_sub_ = this->create_subscription<aero_controller_msgs::msg::Current>("/current_controller/current", teleop_qos, std::bind(&TracerTeleop::currentCallback, this, std::placeholders::_1));
 
     // JointState初期化
     tracer_state_.name.resize(17);
@@ -72,8 +74,8 @@ TracerTeleop::~TracerTeleop() {
         foot_pedal_ = nullptr;
     }
 
+    delete tracer_;
     if (tracer_ != nullptr) {
-        delete tracer_;
         tracer_ = nullptr;
     }
 }
@@ -146,19 +148,23 @@ void TracerTeleop::processLoop() {
     updateFootPedalInput();
 
     std::vector<uint8_t> packet;
+    std::vector<uint8_t> latest_packet;
 
     int max_process = 20; // 安全上限（暴走防止）
     int count = 0;
+    bool got = false;
 
-    // キューを全部処理（最新状態に追従）
+    // 最新の姿勢を取得
     while (tracer_->get_packet(packet) && count < max_process) {
         if (packet.empty()) {
+            latest_packet = packet;
+            got = true;
             break;
         }
-
-        processPacket(packet);
-
         count++;
+    }
+    if (got) {
+        processPacket(latest_packet);
     }
 }
 

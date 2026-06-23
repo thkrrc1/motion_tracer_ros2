@@ -4,9 +4,11 @@ LowerController::LowerController() :
     Node("lower_controller_node"),lifter_ratio_(0.03) {
     controller_rate_ = 100;
     controller_cycle_ = (1.0/controller_rate_);
-    move_time_ = controller_cycle_;
+    move_time_ = 0.03;
 
-    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", 2, std::bind(&LowerController::getJoy, this, std::placeholders::_1));
+    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile().lifespan(std::chrono::milliseconds(100));
+
+    joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", teleop_qos, std::bind(&LowerController::getJoy, this, std::placeholders::_1));
 
     lifter_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("lifter_controller/joint_trajectory", 2);
 
@@ -33,7 +35,7 @@ void LowerController::sendJointAngles() {
         joint_angles_["knee_joint"],
         joint_angles_["ankle_joint"]
     };
-    lifter_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    lifter_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(move_time_);
 
     lifter_traj_pub_->publish(lifter_msg);
 }
