@@ -24,18 +24,16 @@ TracerTeleop::TracerTeleop() :
     on_tracer_mode = false;
 
     auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile().lifespan(std::chrono::milliseconds(100));
+    auto notify_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
 
     // Publisher
     tracer_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("tracer_states", teleop_qos);
     joy_pub_ = this->create_publisher<sensor_msgs::msg::Joy>("tracer_joy", teleop_qos);
     cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", teleop_qos);
 
-    auto mode_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
-    tracer_mode_pub_ = this->create_publisher<std_msgs::msg::Bool>("/tracer_mode", mode_qos);
+    tracer_mode_pub_ = this->create_publisher<std_msgs::msg::Bool>("/tracer_mode", notify_qos);
     notifyTracerMode();
-
-    auto on_tracer_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
-    on_tracer_pub_ = this->create_publisher<std_msgs::msg::Bool>("/on_tracer", on_tracer_qos);
+    on_tracer_pub_ = this->create_publisher<std_msgs::msg::Bool>("/on_tracer", notify_qos);
     notifyOnTracer();
 
     // Subscriber
