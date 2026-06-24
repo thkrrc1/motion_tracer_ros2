@@ -14,6 +14,8 @@
 #include <trajectory_msgs/msg/joint_trajectory.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 
+#include "std_msgs/msg/bool.hpp"
+
 class LowerController : public rclcpp::Node
 {
 public:
@@ -58,6 +60,11 @@ private:
     double current_vy_ = 0.0;
     double current_wz_ = 0.0;
     rclcpp::Time last_time_;
+
+    bool lifter_forward_lean;
+    bool is_halfway_angle;
+    void notifyForwardLean(const std_msgs::msg::Bool& msg);
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr forward_lean_sub_;
 };
 
 #endif
