@@ -1,7 +1,7 @@
 #include "motion_tracer_ros2/lower_controller.hpp"
 
 LowerController::LowerController() :
-    Node("lower_controller_node"),lifter_ratio_(0.03), lifter_forward_lean(false), is_halfway_angle(false) {
+    Node("lower_controller_node"),lifter_ratio_(0.002), lifter_forward_lean(false), is_halfway_angle(false) {
     controller_rate_ = 100;
     controller_cycle_ = (1.0/controller_rate_);
     move_time_ = 0.03;
@@ -67,9 +67,9 @@ void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
             joint_angles_["ankle_joint"] -= (_data->axes[2] * lifter_ratio_);
             if (joint_angles_["ankle_joint"] > ankle_upper_limt) {
                 joint_angles_["ankle_joint"] = ankle_upper_limt;
-                is_halfway_angle = false;
             } else if (joint_angles_["ankle_joint"] < ankle_lower_limt) {
                 joint_angles_["ankle_joint"] = ankle_lower_limt;
+                is_halfway_angle = false;
             }
         }
         sendJointAngles();
