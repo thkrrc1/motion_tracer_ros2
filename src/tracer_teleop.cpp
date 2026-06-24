@@ -146,23 +146,17 @@ void TracerTeleop::processLoop() {
     updateFootPedalInput();
 
     std::vector<uint8_t> packet;
-    std::vector<uint8_t> latest_packet;
 
     int max_process = 20; // 安全上限（暴走防止）
     int count = 0;
-    bool got = false;
 
-    // 最新の姿勢を取得
+    // キューを全部処理（最新状態に追従）
     while (tracer_->get_packet(packet) && count < max_process) {
-        if (!packet.empty()) {
-            latest_packet = packet;
-            got = true;
+        if (packet.empty()) {
             break;
         }
+        processPacket(packet);
         count++;
-    }
-    if (got) {
-        processPacket(latest_packet);
     }
 }
 
@@ -394,6 +388,7 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
             notifyOnTracer();
         } else if (foot_val == "c") {
             joy_.buttons[0] = 1;
+            init_counter_ = 20;
         }
 
         // （foot pedal 有対応）
@@ -501,7 +496,6 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
 
         //for initial pose
         if (init_counter_ > 0) {
-            joy_.axes[4] = -1;
             joy_.buttons[0] = 1;
             init_counter_ -=1;
         }
