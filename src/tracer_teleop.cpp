@@ -154,7 +154,7 @@ void TracerTeleop::processLoop() {
 
     // 最新の姿勢を取得
     while (tracer_->get_packet(packet) && count < max_process) {
-        if (packet.empty()) {
+        if (!packet.empty()) {
             latest_packet = packet;
             got = true;
             break;
