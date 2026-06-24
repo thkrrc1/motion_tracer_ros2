@@ -272,8 +272,8 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
             joint_angles_["waist_y_joint"] = (_data->axes[0] * 1) ;
             joint_angles_["waist_p_joint"] = sign * (_data->axes[1] * -1) ;
         } else if (neck_movement_ == "increment") {
-            joint_angles_["waist_y_joint"] += sign * (_data->axes[0] * 0.07);
-            joint_angles_["waist_p_joint"] -= sign * (_data->axes[1] * 0.07);
+            joint_angles_["waist_y_joint"] += sign * (_data->axes[0] * 0.01);
+            joint_angles_["waist_p_joint"] -= sign * (_data->axes[1] * 0.01);
         }
     } else {
         if (neck_movement_ == "absolute") {
@@ -288,8 +288,8 @@ void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
             joint_angles_["neck_y_joint"] = (_data->axes[3] * 2);
             joint_angles_["neck_p_joint"] = neck_offset_*(M_PI/180) + sign * (_data->axes[2] * -2);
         } else if (neck_movement_ == "increment") {
-            joint_angles_["neck_y_joint"] += (_data->axes[3] * 0.2);
-            joint_angles_["neck_p_joint"] -= sign * (_data->axes[2] * 0.2);
+            joint_angles_["neck_y_joint"] += (_data->axes[3] * 0.01);
+            joint_angles_["neck_p_joint"] -= sign * (_data->axes[2] * 0.01);
         }
     } else { //in case of automatically moving neck  or not
         //std::cout << neck_auto_  << "," << look_right << "," << look_left << std::endl;
