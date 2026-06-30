@@ -168,7 +168,9 @@ double UpperController::calcHandAngle(double _position, double offset){
     // // (リーダー現在角度 - リーダー閉じきった際の角度) / リーダー全移動角度量 * フォロワー全移動角度量 + フォロワー閉じきった際の角度 + offset;
     // return (_position + 11) / 56  * 0.15 - 0.06462 + offset;
     // (試作2暫定対応)
-    return (_position + 45) / 90 * 0.13387 - 0.04586 + offset;
+    // return (_position + 45) / 90 * 0.13387 - 0.04586 + offset;
+    // (試作2_剛性UP暫定対応)
+    return (_position + 45) / 80 * 0.12644 - 0.04738 + offset;
 }
 
 void UpperController::sendJointAngles() {
