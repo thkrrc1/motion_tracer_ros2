@@ -170,7 +170,7 @@ double UpperController::calcHandAngle(double _position, double offset){
     // (試作2暫定対応)
     // return (_position + 45) / 90 * 0.13387 - 0.04586 + offset;
     // (試作2_剛性UP暫定対応)
-    return (_position + 45) / 80 * 0.12644 - 0.04738 + offset;
+    return (_position + 35) / 70 * 0.14644 - 0.05738 + offset;
 }
 
 void UpperController::sendJointAngles() {
