@@ -213,13 +213,13 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
         } else if (1800 < position_[4] && position_[4] < 3600) {
             tracer_state_.position[5] = position_[4] - 3600;
         }
-        // r_wrist_p_joint
+        // r_wrist_r_joint
         if (0 <= position_[5] && position_[5] <= 1800) {
             tracer_state_.position[6] = position_[5];
         } else if (1800 < position_[5] && position_[5] < 3600) {
             tracer_state_.position[6] = position_[5] - 3600;
         }
-        // r_wrist_r_joint
+        // r_wrist_p_joint
         if (0 <= position_[6] && position_[6] <= 1800) {
             tracer_state_.position[7] = position_[6];
         } else if (1800 < position_[6] && position_[6] < 3600) {
@@ -275,13 +275,13 @@ void TracerTeleop::processPacket(std::vector<uint8_t>& tracer_data_) {
         } else if (1800 < position_[19] && position_[19] < 3600) {
             tracer_state_.position[13] = position_[19] - 3600;
         }
-        // l_wrist_p_joint
+        // l_wrist_r_joint
         if (0 <= position_[20] && position_[20] <= 1800) {
             tracer_state_.position[14] = position_[20];
         } else if (1800 < position_[20] && position_[20] < 3600) {
             tracer_state_.position[14] = position_[20] - 3600;
         }
-        // l_wrist_r_joint
+        // l_wrist_p_joint
         if (0 <= position_[21] && position_[21] <= 1800) {
             tracer_state_.position[15] = position_[21];
         } else if (1800 < position_[21] && position_[21] < 3600) {
