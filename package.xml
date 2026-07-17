@@ -20,6 +20,10 @@
   <depend>rclcpp_action</depend>
   <depend>control_msgs</depend>
   <depend>aero_controller_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>orocos_kdl_vendor</depend>
+  <depend>kdl_parser</depend>
   
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

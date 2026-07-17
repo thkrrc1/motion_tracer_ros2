@@ -52,18 +52,24 @@ TracerTeleop::TracerTeleop() :
 
     //電流値初期化
     latest_current_.resize(60, 0);
+    for (size_t i = 0; i < 30; ++i) {
+        latest_current_[2 * i] = 0x7F;
+        latest_current_[2 * i + 1] = 0xFF;
+    }
     latest_pos.resize(30, 0);
+    for (size_t i = 0; i < 30; ++i) {
+        latest_pos[i] = 0x7FFF;
+    }
 
     timer_ = this->create_wall_timer(std::chrono::milliseconds(10),std::bind(&TracerTeleop::processLoop, this));
-    running_ = true;
+    running_.store(true);
     tx_thread_ = std::thread(&TracerTeleop::txLoop, this);
 }
 
 TracerTeleop::~TracerTeleop() {
     running_.store(false);
 
-    if(tx_thread_.joinable())
-    {
+    if(tx_thread_.joinable()) {
         tx_thread_.join();
     }
 
@@ -114,29 +120,24 @@ void TracerTeleop::txLoop() {
             currents[idx] = 0x7FFF;
         }
 
-        if (only_hand_current) {
-            int right_hand_aero_id = 7;
-            int left_hand_aero_id = 22;
-            double scale = 1.0;
-
-            uint16_t r_hand_current = static_cast<uint16_t>(current_copy[right_hand_aero_id * 2]) << 8 |
-                                        static_cast<uint16_t>(current_copy[right_hand_aero_id * 2 + 1]);
-            uint16_t l_hand_current = static_cast<uint16_t>(current_copy[left_hand_aero_id * 2]) << 8 |
-                                        static_cast<uint16_t>(current_copy[left_hand_aero_id * 2 + 1]);
-
-            currents[7] = r_hand_current * scale;
-            currents[22] = l_hand_current * scale;
-
-            // ハンド位置の送信暫定対応
-            currents[28] = pos_copy[right_hand_aero_id];
-            currents[29] = pos_copy[left_hand_aero_id];
-            
-        } else {
-            for (unsigned int idx = 0; idx < currents.size(); ++idx) {
-                currents[idx] = static_cast<uint16_t>(current_copy[idx * 2]) << 8 |
-                                    static_cast<uint16_t>(current_copy[idx * 2 + 1]);
-            }
+        // 受信した電流値を一旦すべて詰める
+        for (unsigned int idx = 0; idx < currents.size(); ++idx) {
+            currents[idx] = static_cast<uint16_t>(current_copy[idx * 2]) << 8 |
+                                static_cast<uint16_t>(current_copy[idx * 2 + 1]);
         }
+
+        uint16_t r_hand_current = static_cast<uint16_t>(current_copy[right_hand_aero_id * 2]) << 8 |
+                                    static_cast<uint16_t>(current_copy[right_hand_aero_id * 2 + 1]);
+        uint16_t l_hand_current = static_cast<uint16_t>(current_copy[left_hand_aero_id * 2]) << 8 |
+                                    static_cast<uint16_t>(current_copy[left_hand_aero_id * 2 + 1]);
+
+        currents[7] = r_hand_current * scale;
+        currents[22] = l_hand_current * scale;
+
+        // ハンド位置の送信暫定対応
+        currents[28] = pos_copy[right_hand_aero_id];
+        currents[29] = pos_copy[left_hand_aero_id];
+
         tracer_->send_current(currents);
 
         rate.sleep();

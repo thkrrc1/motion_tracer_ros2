@@ -26,6 +26,10 @@ find_package(geometry_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(aero_controller_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(orocos_kdl_vendor REQUIRED)
+find_package(orocos_kdl REQUIRED)
+find_package(kdl_parser REQUIRED)
 
 # Boost
 find_package(Boost REQUIRED COMPONENTS filesystem system thread)
@@ -36,6 +40,7 @@ add_executable(tracer_teleop_node
 )
 add_executable(upper_controller_node src/upper_controller.cpp)
 add_executable(lower_controller_node src/lower_controller.cpp)
+add_executable(wrench_controller_node src/wrench_controller.cpp)
 
 target_include_directories(tracer_teleop_node PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
@@ -49,10 +54,15 @@ target_include_directories(lower_controller_node PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+target_include_directories(wrench_controller_node PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
 
 target_link_libraries(tracer_teleop_node ${Boost_LIBRARIES})
 target_link_libraries(upper_controller_node ${Boost_LIBRARIES})
 target_link_libraries(lower_controller_node ${Boost_LIBRARIES})
+target_link_libraries(wrench_controller_node ${Boost_LIBRARIES})
 
 ament_target_dependencies(tracer_teleop_node
   rclcpp
@@ -82,6 +92,17 @@ ament_target_dependencies(lower_controller_node
   control_msgs
   trajectory_msgs
 )
+ament_target_dependencies(wrench_controller_node
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+  std_msgs
+  std_srvs
+  aero_controller_msgs
+  orocos_kdl_vendor
+  orocos_kdl
+  kdl_parser
+)
 
 install(DIRECTORY
   launch
@@ -98,6 +119,7 @@ install(TARGETS
   tracer_teleop_node
   upper_controller_node
   lower_controller_node
+  wrench_controller_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

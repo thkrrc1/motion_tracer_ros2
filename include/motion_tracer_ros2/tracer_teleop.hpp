@@ -56,6 +56,9 @@ private:
     bool tracer_mode_;
 
     bool only_hand_current = true;
+    int right_hand_aero_id = 7;
+    int left_hand_aero_id = 22;
+    double scale = 1.0;
 
     tracer::controller::FootPedalCommand *foot_pedal_;
     void updateFootPedalInput();

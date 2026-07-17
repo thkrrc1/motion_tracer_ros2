@@ -44,4 +44,12 @@ def generate_launch_description():
     )
     ld.add_action(lower_controller_node)
 
+    wrench_controller_node = Node(
+        package=tracer_pkg_name,
+        executable='wrench_controller_node',
+        name='wrench_controller_node',
+        output='screen'
+    )
+    ld.add_action(wrench_controller_node)
+
     return ld
