@@ -141,7 +141,7 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     // joint_angles_["r_wrist_r_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad;
     // (新機体仕様)
     joint_angles_["r_wrist_r_joint"] = _tracer_data.position[6] / 10.0 * deg2Rad * -1.0;
-    joint_angles_["r_wrist_p_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad * 3.0;
+    joint_angles_["r_wrist_p_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad * 1.0;
     // (試作2暫定対応)
     joint_angles_["r_thumb_joint"] = calcHandAngle(_tracer_data.position[8] / 10.0, 0.0);
 
