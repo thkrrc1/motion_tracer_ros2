@@ -120,7 +120,7 @@ private:
     void publishMergedCurrent(const std::vector<double> * tau, bool enable_reflection);
     void fillNeutral(aero_controller_msgs::msg::Current & msg) const;
     int convertCurrentValue(int current_val);
-    void setCurrentWord(aero_controller_msgs::msg::Current & msg, int tracer_index, uint16_t raw) const;
+    void setCurrentWord(aero_controller_msgs::msg::Current & msg, int current_index, uint16_t raw) const;
     uint16_t clampCurrent(int value) const;
     static double applyDeadband(double value, double deadband);
     static double norm3(double x, double y, double z);
@@ -177,7 +177,9 @@ private:
     double lowpass_alpha = 0.35;
 
     // ---- Parameters: current mux / reflection ----
-    uint16_t neutral_current = 0x7FFF;
+    uint16_t neutral_current = 0x0000;
+    int right_hand_aero_id = 7;
+    int left_hand_aero_id = 22;
     int max_current_delta = 800;
     double max_delta_rate_per_sec_ = 40000.0;
     std::vector<int64_t> arm_joint_indices = {0, 1, 2, 3, 4, 5, 6};

@@ -113,12 +113,8 @@ void TracerTeleop::txLoop() {
             return;
         }
 
-        std::vector<uint16_t> currents(current_copy.size()/2);
-
         // 初期化
-        for (unsigned int idx = 0; idx < currents.size(); ++idx) {
-            currents[idx] = 0x7FFF;
-        }
+        std::vector<uint16_t> currents(current_copy.size()/2, 0);
 
         // 受信した電流値を一旦すべて詰める
         for (unsigned int idx = 0; idx < currents.size(); ++idx) {

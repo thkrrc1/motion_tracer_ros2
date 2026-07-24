@@ -938,8 +938,11 @@ aero_controller_msgs::msg::Current WrenchController::makeOutputFromBaseOrNeutral
         return out;
     }
 
-    const size_t n_data = std::min(out.data.size(), latest_current_raw.data.size());
-    std::copy_n(latest_current_raw.data.begin(), n_data, out.data.begin());
+    // ハンド電流値のみ生データ
+    out.data[right_hand_aero_id * 2] = latest_current_raw.data[right_hand_aero_id * 2];
+    out.data[right_hand_aero_id * 2 + 1] = latest_current_raw.data[right_hand_aero_id * 2 + 1];
+    out.data[left_hand_aero_id * 2] = latest_current_raw.data[left_hand_aero_id * 2];
+    out.data[left_hand_aero_id * 2 + 1] = latest_current_raw.data[left_hand_aero_id * 2 + 1];
 
     const size_t n_pos = std::min(out.pos_data.size(), latest_current_raw.pos_data.size());
     std::copy_n(latest_current_raw.pos_data.begin(), n_pos, out.pos_data.begin());
@@ -1136,8 +1139,8 @@ int WrenchController::convertCurrentValue(int current_val) {
     return res;
 }
 
-void WrenchController::setCurrentWord(aero_controller_msgs::msg::Current & msg, int tracer_index, uint16_t raw) const {
-    const int idx = tracer_index * 2;
+void WrenchController::setCurrentWord(aero_controller_msgs::msg::Current & msg, int current_index, uint16_t raw) const {
+    const int idx = current_index * 2;
     if (idx < 0 || idx + 1 >= static_cast<int>(msg.data.size())) {
       return;
     }
