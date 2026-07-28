@@ -76,10 +76,10 @@ private:
     const float waist_y_upper_limt = 2.09;
     const float waist_y_lower_limt = -2.09;
 
-    bool send_angle_r_hand;
-    bool send_angle_r_arm;
-    bool send_angle_l_hand;
-    bool send_angle_l_arm;
+    bool send_angle_r_hand = true;
+    bool send_angle_r_arm = true;
+    bool send_angle_l_hand = true;
+    bool send_angle_l_arm = true;
 
     //////////////////////////////
     // GUI parameters
