@@ -10,7 +10,7 @@ LowerController::LowerController() :
     auto notify_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
 
     lifter_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("lifter_controller/joint_trajectory", 2);
-    cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel_nav", 2);
+    cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/mechanum_controller/cmd_vel_teleop_raw", 2);
 
     joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", teleop_qos, std::bind(&LowerController::getJoy, this, std::placeholders::_1));
     forward_lean_sub_ = this->create_subscription<std_msgs::msg::Bool>("/on_lifter_forward_lean", notify_qos, std::bind(&LowerController::notifyForwardLean, this, std::placeholders::_1));

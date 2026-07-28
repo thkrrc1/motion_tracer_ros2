@@ -25,9 +25,7 @@ WrenchController::WrenchController() :
 
     robot_description_sub_ = create_subscription<std_msgs::msg::String>("/robot_description", robot_description_qos, std::bind(&WrenchController::robotDescriptionCallback, this, std::placeholders::_1));
 
-    joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
-        "/joint_states", sensor_qos,
-        std::bind(&WrenchController::jointStateCallback, this, std::placeholders::_1));
+    joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", sensor_qos, std::bind(&WrenchController::jointStateCallback, this, std::placeholders::_1));
 
     on_force_feedback_sub_ = create_subscription<std_msgs::msg::Bool>("/on_force_feedback", notify_qos, std::bind(&WrenchController::onForceFeedbackCallback, this, std::placeholders::_1));
 
