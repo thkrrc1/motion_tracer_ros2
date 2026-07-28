@@ -55,7 +55,6 @@ private:
 
     int controller_rate_;     // [Hz]
     double controller_cycle_; // [sec]
-    double move_time_;        // [sec]
 
     const double rad2Deg = 180.0 / M_PI;
     const double deg2Rad = M_PI / 180.0;
