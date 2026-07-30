@@ -25,7 +25,7 @@ public:
     void init_follow_joint_trajectory();
     void sendJointAngles();
     void getJoy(const sensor_msgs::msg::Joy::SharedPtr msg);
-    double limitRate(double target, double current, double max_acc, double dt);
+    double limitRate(double target, double current, double max_acc, double max_decel, double dt);
 
 private:
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
@@ -54,7 +54,9 @@ private:
     float lifter_ratio_;
 
     double max_linear_acc = 0.3;
+    double max_linear_decel = 1.2;
     double max_angular_acc = 0.8;
+    double max_angular_decel = 1.5;
     double current_vx_ = 0.0;
     double current_vy_ = 0.0;
     double current_wz_ = 0.0;
