@@ -14,7 +14,7 @@ UpperController::UpperController() :
     neck_reverse_ = this->get_parameter("neck_reverse").as_bool();
     neck_auto_ = this->get_parameter("neck_auto").as_bool();
 
-    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile().lifespan(std::chrono::milliseconds(100));
+    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
 
     tracer_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/tracer_states", teleop_qos, std::bind(&UpperController::tracerStateCallback, this, std::placeholders::_1));
     joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", teleop_qos, std::bind(&UpperController::getJoy, this, std::placeholders::_1));

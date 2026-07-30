@@ -8,8 +8,8 @@ WrenchController::WrenchController() :
     last_current_delta.assign(active_joint_names.size(), 0.0);
     last_current_publish_time = now();
 
-    auto current_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
-    auto sensor_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile().lifespan(std::chrono::milliseconds(100));
+    auto current_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
+    auto sensor_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
     auto notify_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     auto robot_description_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
 

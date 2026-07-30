@@ -166,7 +166,7 @@ private:
     // std::vector<double> configured_kdl_to_active_offsets_;
 
     // ---- Parameters: collision ----
-    double sample_rate_hz = 500.0;
+    double sample_rate_hz = 100.0;
     bool publish_wrench_debug = true;
     bool publish_tau_debug = true;
     double force_threshold = 2.0;
@@ -226,4 +226,4 @@ private:
     std::atomic<bool> have_joint_state = false;
 };
 
-#endif 
+#endif

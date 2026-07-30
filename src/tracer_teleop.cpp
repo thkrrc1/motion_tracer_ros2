@@ -23,9 +23,9 @@ TracerTeleop::TracerTeleop() :
     is_mover_mode = false;
     on_tracer_mode = false;
 
-    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile().lifespan(std::chrono::milliseconds(100));
+    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
     auto notify_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
-    auto current_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
+    auto current_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
 
     // Publisher
     tracer_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("tracer_states", teleop_qos);
@@ -98,7 +98,7 @@ void TracerTeleop::currentCallback(const aero_controller_msgs::msg::Current& _cu
 
 void TracerTeleop::txLoop() {
 
-    rclcpp::WallRate rate(50.0);
+    rclcpp::WallRate rate(100.0);
 
     std::vector<uint8_t> current_copy;
     std::vector<uint16_t> pos_copy;

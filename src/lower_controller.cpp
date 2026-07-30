@@ -5,7 +5,7 @@ LowerController::LowerController() :
     controller_rate_ = 100;
     controller_cycle_ = (1.0/controller_rate_);
 
-    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile().lifespan(std::chrono::milliseconds(100));
+    auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
     auto notify_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
 
     lifter_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("lifter_controller/joint_trajectory", 2);
