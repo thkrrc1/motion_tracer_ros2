@@ -144,17 +144,15 @@ void TracerTeleop::processLoop() {
     updateFootPedalInput();
 
     std::vector<uint8_t> packet;
+    std::vector<uint8_t> latest_packet;
 
-    int max_process = 20; // 安全上限（暴走防止）
-    int count = 0;
-
-    // キューを全部処理（最新状態に追従）
-    while (tracer_->get_packet(packet) && count < max_process) {
-        if (packet.empty()) {
-            break;
+    while (tracer_->get_packet(packet)) {
+        if (!packet.empty()) {
+            latest_packet = std::move(packet);
         }
-        processPacket(packet);
-        count++;
+    }
+    if (!latest_packet.empty()) {
+        processPacket(latest_packet);
     }
 }
 
