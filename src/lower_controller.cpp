@@ -89,7 +89,7 @@ void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
         double target_wz = 0.0;
 
         if (std::abs(_data->axes[1]) > 0.05) {
-            target_vx = 1.0 * _data->axes[1];;
+            target_vx = 0.6 * _data->axes[1];;
         }
         if (std::abs(_data->axes[3]) > 0.05) {
             target_vy = 0.5 * _data->axes[3];
