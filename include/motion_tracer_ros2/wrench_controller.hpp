@@ -149,8 +149,8 @@ private:
     // ---- Parameters: frames / KDL ----
     std::string base_link_="r_arm_link";
     std::string tip_link_= "r_hand_link";
-    std::vector<double> sensor_xyz_in_tip = {0.0, 0.0, 0.0};
-    std::vector<double> sensor_rpy_in_tip = {0.0, 0.0, 0.0};
+    std::vector<double> sensor_xyz_in_tip = {0.0, 0.0, -0.015};
+    std::vector<double> sensor_rpy_in_tip = {M_PI, 0.0, -M_PI/2};
     std::vector<std::string> active_joint_names = {
         "r_shoulder_p_joint",
         "r_shoulder_r_joint",
@@ -180,11 +180,11 @@ private:
     uint16_t neutral_current = 0x0000;
     int right_hand_aero_id = 7;
     int left_hand_aero_id = 22;
-    int max_current_delta = 800;
-    double max_delta_rate_per_sec_ = 40000.0;
+    int max_current_delta = 600;
+    double max_delta_rate_per_sec_ = 6000.0;
     std::vector<int64_t> arm_joint_indices = {0, 1, 2, 3, 4, 5, 6};
     std::vector<int64_t> protected_arm_joint_indices = {7, 22, 28, 29};
-    std::vector<double> current_signs = {-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0};
+    std::vector<double> current_signs = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
     std::vector<double> current_gains = {100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0};
     std::vector<double> last_current_delta;
     rclcpp::Time last_current_publish_time;

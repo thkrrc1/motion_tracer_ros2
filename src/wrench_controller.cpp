@@ -1104,6 +1104,7 @@ void WrenchController::publishMergedCurrent(const std::vector<double> * tau, boo
             }
         }
         last_current_delta[axis] = limited_delta;
+        limited_delta = std::abs(limited_delta); //正方向の電流値として扱う
         const int merged_current_raw = static_cast<int>(std::llround(limited_delta));
         const int merged_current = convertCurrentValue(merged_current_raw);
         setCurrentWord(msg, tracer_index, clampCurrent(merged_current));
