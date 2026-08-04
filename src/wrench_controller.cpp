@@ -1,58 +1,76 @@
 #include "motion_tracer_ros2/wrench_controller.hpp"
 
 WrenchController::WrenchController() : 
-    Node("wrench_controller_node"), fd_(-1) {
+    Node("wrench_controller_node") {
 
-    tip_T_sensor = makeSensorFrameFromParams();
+    configureArm(
+        right_arm_, "right", "r",
+        "/dev/force_sensor_right", "r_arm_link", "r_hand_link",
+        {0.0, 0.0, -0.015}, {M_PI, 0.0, -M_PI / 2.0},
+        {
+            "r_shoulder_p_joint",
+            "r_shoulder_r_joint",
+            "r_shoulder_y_joint",
+            "r_elbow_joint",
+            "r_wrist_y_joint",
+            "r_wrist_r_joint",
+            "r_wrist_p_joint"
+        },
+        {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0}, {100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0},
+        {0, 1, 2, 3, 4, 5, 6}
+    );
 
-    last_current_delta.assign(active_joint_names.size(), 0.0);
-    last_current_publish_time = now();
+    configureArm(
+        left_arm_, "left", "l",
+        "/dev/force_sensor_left", "l_arm_link", "l_hand_link",
+        {0.0, 0.0, -0.015}, {M_PI, 0.0, -M_PI / 2.0},
+        {
+            "l_shoulder_p_joint",
+            "l_shoulder_r_joint",
+            "l_shoulder_y_joint",
+            "l_elbow_joint",
+            "l_wrist_y_joint",
+            "l_wrist_r_joint",
+            "l_wrist_p_joint"
+        },
+        {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0}, {100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0},
+        {15, 16, 17, 18, 19, 20, 21}
+    );
+
+    if (!validateArmConfiguration(right_arm_) || !validateArmConfiguration(left_arm_)) {
+        throw std::runtime_error("Invalid dual-arm force-reflection configuration");
+    }
 
     auto current_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
     auto sensor_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
     auto notify_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     auto robot_description_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
 
-    current_raw_sub_ = this->create_subscription<aero_controller_msgs::msg::Current>("/current_controller/current_raw", current_qos, std::bind(&WrenchController::currentRawCallback, this, std::placeholders::_1));
     current_pub_ = this->create_publisher<aero_controller_msgs::msg::Current>("/current_controller/current", current_qos);
-
+    current_raw_sub_ = this->create_subscription<aero_controller_msgs::msg::Current>("/current_controller/current_raw", current_qos, std::bind(&WrenchController::currentRawCallback, this, std::placeholders::_1));
+    robot_description_sub_ = create_subscription<std_msgs::msg::String>("/robot_description", robot_description_qos, std::bind(&WrenchController::robotDescriptionCallback, this, std::placeholders::_1));
+    joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", sensor_qos, std::bind(&WrenchController::jointStateCallback, this, std::placeholders::_1));
+    on_force_feedback_sub_ = create_subscription<std_msgs::msg::Bool>("/on_force_feedback", notify_qos, std::bind(&WrenchController::onForceFeedbackCallback, this, std::placeholders::_1));
     if (publish_wrench_debug) {
-        wrench_sensor_pub_ = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/filtered_wrench", sensor_qos);
+        right_arm_.wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/right/filtered_wrench", sensor_qos);
+        left_arm_.wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/left/filtered_wrench", sensor_qos);
     }
     if (publish_tau_debug) {
-        tau_pub_ = create_publisher<sensor_msgs::msg::JointState>("/force_sensor/reflection_tau", sensor_qos);
+        right_arm_.tau_pub = create_publisher<sensor_msgs::msg::JointState>("/force_sensor/right/reflection_tau", sensor_qos);
+        left_arm_.tau_pub = create_publisher<sensor_msgs::msg::JointState>("/force_sensor/left/reflection_tau", sensor_qos);
     }
-
-    robot_description_sub_ = create_subscription<std_msgs::msg::String>("/robot_description", robot_description_qos, std::bind(&WrenchController::robotDescriptionCallback, this, std::placeholders::_1));
-
-    joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", sensor_qos, std::bind(&WrenchController::jointStateCallback, this, std::placeholders::_1));
-
-    on_force_feedback_sub_ = create_subscription<std_msgs::msg::Bool>("/on_force_feedback", notify_qos, std::bind(&WrenchController::onForceFeedbackCallback, this, std::placeholders::_1));
 
     tare_srv_ = this->create_service<std_srvs::srv::Trigger>("/force_sensor/tare", std::bind(&WrenchController::tareCallback, this, std::placeholders::_1, std::placeholders::_2));
 
-    if (!openSerial("/dev/force_sensor")) {
-        RCLCPP_ERROR(this->get_logger(), "Failed to open /dev/force_sensor");
-    }
-    flushSerial();
+    right_arm_.last_current_publish_time = now();
+    left_arm_.last_current_publish_time = now();
 
-    for (size_t i = 0; i < retry_calib_max_count; ++i) {
-        if (!readCalibration()) {
-            RCLCPP_ERROR(this->get_logger(), "Failed to read force sensor calibration.");
-            continue;
-        }
-        break;
+    if (!initializeSensor(right_arm_)) {
+        RCLCPP_ERROR(this->get_logger(), "Right force sensor initialization failed: %s", right_arm_.device.c_str());
     }
-
-    if (acquisition_mode == "continuous") {
-        std::lock_guard<std::mutex> lock(serial_mutex_);
-        if (!startStream()) {
-            RCLCPP_ERROR(this->get_logger(), "Failed to start force sensor data streaming.");
-        }
+    if (!initializeSensor(left_arm_)) {
+        RCLCPP_ERROR(this->get_logger(), "Left force sensor initialization failed: %s", left_arm_.device.c_str());
     }
-    // if (!setFrequencyDivider(frequency_divider_)) {
-    //     RCLCPP_WARN(this->get_logger(), "Failed to set Dynpick frequency divider. Continue anyway.");
-    // }
 
     publishNeutralCurrent();
     running_.store(true);
@@ -64,12 +82,59 @@ WrenchController::~WrenchController() {
     if (wrench_thread_.joinable()) {
         wrench_thread_.join();
     }
-    if (acquisition_mode == "continuous") {
-        std::lock_guard<std::mutex> lock(serial_mutex_);
-        stopStream();
-    }
+
+    stopStream(right_arm_);
+    closeSerial(right_arm_);
+    stopStream(left_arm_);
+    closeSerial(left_arm_);
+
     publishNeutralCurrent();
-    closeSerial();
+}
+
+void WrenchController::configureArm(
+    ArmContext & arm, const std::string & side, const std::string & joint_prefix,
+    const std::string & default_device, const std::string & default_base_link, const std::string & default_tip_link,
+    const std::vector<double> & default_sensor_xyz_in_tip, const std::vector<double> & default_sensor_rpy_in_tip,
+    const std::vector<std::string> & default_active_joint_names,
+    const std::vector<double> & default_current_signs, const std::vector<double> & default_current_gains,
+    const std::vector<int64_t> & default_arm_indices) {
+
+    arm.side = side;
+    arm.joint_prefix = joint_prefix;
+    arm.device = default_device;
+    arm.sensor_frame_id = joint_prefix + "_force_sensor";
+    arm.base_link = default_base_link;
+    arm.tip_link = default_tip_link;
+    arm.sensor_xyz_in_tip = default_sensor_xyz_in_tip;
+    arm.sensor_rpy_in_tip = default_sensor_rpy_in_tip;
+    arm.active_joint_names = default_active_joint_names;
+    arm.arm_joint_indices = default_arm_indices;
+    arm.current_signs = default_current_signs;
+    arm.current_gains = default_current_gains;
+    arm.last_current_delta.assign(arm.active_joint_names.size(), 0.0);
+    arm.tip_T_sensor = makeSensorFrameFromParams(arm);
+}
+
+bool WrenchController::validateArmConfiguration(const ArmContext & arm) const {
+
+    if (arm.sensor_xyz_in_tip.size() != 3 || arm.sensor_rpy_in_tip.size() != 3) {
+        RCLCPP_ERROR(this->get_logger(), "%s sensor xyz/rpy parameters must each have three values.", arm.side.c_str());
+        return false;
+    }
+
+    const size_t n = arm.active_joint_names.size();
+    if (n != 7 || arm.arm_joint_indices.size() != n || arm.current_signs.size() != n || arm.current_gains.size() != n) {
+        RCLCPP_ERROR(this->get_logger(), "%s arm parameter sizes must all be seven: active=%zu indices=%zu signs=%zu gains=%zu", arm.side.c_str(), n, arm.arm_joint_indices.size(), arm.current_signs.size(), arm.current_gains.size());
+        return false;
+    }
+
+    for (const auto index : arm.arm_joint_indices) {
+        if (index < 0 || index >= MOTOR_COUNT || isProtectedTracerIndex(static_cast<int>(index))) {
+            RCLCPP_ERROR(this->get_logger(), "%s arm has invalid or protected Tracer index: %ld", arm.side.c_str(), static_cast<long>(index));
+            return false;
+        }
+    }
+    return true;
 }
 
 void WrenchController::currentRawCallback(const aero_controller_msgs::msg::Current::SharedPtr msg) {
@@ -80,13 +145,15 @@ void WrenchController::currentRawCallback(const aero_controller_msgs::msg::Curre
 }
 
 void WrenchController::robotDescriptionCallback(const std_msgs::msg::String::SharedPtr msg) {
-    if (kinematics_ready.load()) {
-        return;
-    }
     if (!msg || msg->data.empty()) {
         return;
     }
-    buildKinematicsFromUrdf(msg->data);
+    if (!right_arm_.kinematics_ready.load()) {
+        buildKinematicsFromUrdfForArm(right_arm_, msg->data);
+    }
+    if (!left_arm_.kinematics_ready.load()) {
+        buildKinematicsFromUrdfForArm(left_arm_, msg->data);
+    }
 }
 
 void WrenchController::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
@@ -107,30 +174,53 @@ void WrenchController::jointStateCallback(const sensor_msgs::msg::JointState::Sh
 
 void WrenchController::onForceFeedbackCallback(const std_msgs::msg::Bool & msg) {
     on_force_feedback_.store(msg.data);
-    if (!msg.data) {
-        resetReflectionDelta();
-        publishPassThroughOrNeutral();
-    }
 }
 
 void WrenchController::tareCallback(const std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
-    tare_requested_.store(true);
-    filter_initialized = false;
+    right_arm_.tare_requested.store(true);
+    left_arm_.tare_requested.store(true);
+    right_arm_.filter_initialized.store(false);
+    left_arm_.filter_initialized.store(false);
     res->success = true;
     res->message = "force sensor tare requested.";
 }
 
-bool WrenchController::openSerial(std::string device_) {
-    std::lock_guard<std::mutex> lock(serial_mutex_);
-    fd_ = open(device_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if (fd_ < 0) {
+bool WrenchController::initializeSensor(ArmContext & arm) {
+    if (!openSerial(arm)) {
+        return false;
+    }
+
+    bool calibrated = false;
+    for (size_t i = 0; i < retry_calib_max_count; ++i) {
+        if (readCalibration(arm)) {
+            calibrated = true;
+            break;
+        }
+        RCLCPP_WARN(get_logger(), "%s force sensor calibration read failed (%zu/%zu).", arm.side.c_str(), i + 1, retry_calib_max_count);
+    }
+
+    if (!calibrated) {
+        RCLCPP_ERROR(get_logger(), "%s force sensor calibration could not be read.", arm.side.c_str());
+        return false;
+    }
+
+    if (arm.acquisition_mode == "continuous" && !startStream(arm)) {
+        return false;
+    }
+    arm.sensor_ready.store(true);
+    return true;
+}
+
+bool WrenchController::openSerial(ArmContext & arm) {
+    std::lock_guard<std::mutex> lock(arm.serial_mutex);
+    arm.fd = open(arm.device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (arm.fd < 0) {
         return false;
     }
 
     struct termios term;
-    tcgetattr(fd_, &term);
+    tcgetattr(arm.fd, &term);
     memset(&term, 0, sizeof(term));
-
     term.c_cflag = B921600 | CS8 | CLOCAL | CREAD;
     term.c_iflag = IGNPAR;
     term.c_oflag = 0;
@@ -155,30 +245,30 @@ bool WrenchController::openSerial(std::string device_) {
     term.c_cc[VLNEXT]   = 0;
     term.c_cc[VEOL2]    = 0;
 
-    tcsetattr(fd_, TCSANOW, &term);
+    tcsetattr(arm.fd, TCSANOW, &term);
 
     return true;
 }
 
-void WrenchController::closeSerial() {
-    std::lock_guard<std::mutex> lock(serial_mutex_);
-    if (fd_ >= 0) {
-        close(fd_);
-        fd_ = -1;
+void WrenchController::closeSerial(ArmContext & arm) {
+    std::lock_guard<std::mutex> lock(arm.serial_mutex);
+    if (arm.fd >= 0) {
+        close(arm.fd);
+        arm.fd = -1;
     }
 }
 
-void WrenchController::flushSerial() {
-    continuous_rx_buffer_.clear();
-    if (fd_ >= 0) {
-        tcflush(fd_, TCIFLUSH);
+void WrenchController::flushSerial(ArmContext & arm) {
+    arm.continuous_rx_buffer.clear();
+    if (arm.fd >= 0) {
+        tcflush(arm.fd, TCIFLUSH);
     }
 }
 
-bool WrenchController::writeAll(const char * data, size_t len) {
+bool WrenchController::writeAll(ArmContext & arm, const char * data, size_t len) {
     size_t written = 0;
     while (written < len) {
-        const ssize_t n = write(fd_, data + written, len - written);
+        const ssize_t n = write(arm.fd, data + written, len - written);
         if (n > 0) {
             written += static_cast<size_t>(n);
             continue;
@@ -188,16 +278,16 @@ bool WrenchController::writeAll(const char * data, size_t len) {
         }
         return false;
     }
-    if (fd_ >= 0) {
-        tcdrain(fd_);
+    if (arm.fd >= 0) {
+        tcdrain(arm.fd);
     }
     return true;
 }
 
-bool WrenchController::readCalibText(std::string& line, int timeout_ms, size_t max_len) {
+bool WrenchController::readCalibText(ArmContext & arm, std::string& line, int timeout_ms, size_t max_len) {
     line.clear();
 
-    if (fd_ < 0) {
+    if (arm.fd < 0) {
         return false;
     }
 
@@ -211,7 +301,7 @@ bool WrenchController::readCalibText(std::string& line, int timeout_ms, size_t m
         }
 
         pollfd pfd;
-        pfd.fd = fd_;
+        pfd.fd = arm.fd;
         pfd.events = POLLIN;
         const int poll_ret = poll(&pfd, 1, remaining_ms);
         if (poll_ret < 0) {
@@ -231,7 +321,7 @@ bool WrenchController::readCalibText(std::string& line, int timeout_ms, size_t m
         }
 
         char ch = 0;
-        const ssize_t n = read(fd_, &ch, 1);
+        const ssize_t n = read(arm.fd, &ch, 1);
         if (n == 1) {
             if (ch == '\n') {
                 return true;
@@ -246,40 +336,31 @@ bool WrenchController::readCalibText(std::string& line, int timeout_ms, size_t m
             continue;
         }
 
-        if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                continue;
-            }
-            return false;
+        if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+            continue;
         }
-        if (n == 0) {
-            return false;
-        }
+        return false;
     }
 }
 
-bool WrenchController::readCalibration() {
-    std::lock_guard<std::mutex> lock(serial_mutex_);
-    if (fd_ < 0) {
+bool WrenchController::readCalibration(ArmContext & arm) {
+    std::lock_guard<std::mutex> lock(arm.serial_mutex);
+    if (arm.fd < 0) {
         return false;
     }
-    flushSerial();
+    flushSerial(arm);
 
-    if (!writeAll("E", 1)) {
+    if (!writeAll(arm, "E", 1)) {
         RCLCPP_WARN(this->get_logger(), "Failed to send stop stream command.");
     }
-
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    if (!writeAll("p", 1)) {
+    if (!writeAll(arm ,"p", 1)) {
         return false;
     }
 
     std::string reply;
-    if (!readCalibText(reply, 100, 128)) {
+    if (!readCalibText(arm, reply, 100, 128)) {
         RCLCPP_WARN(this->get_logger(), "Failed to read force sensor calibration reply.");
         return false;
     }
@@ -289,103 +370,100 @@ bool WrenchController::readCalibration() {
     if (n != 6) {
         return false;
     }
-    for (size_t i = 0; i < 6; ++i) {
-        calib_[i] = std::max(1e-9, static_cast<double>(c[i]));
+    for (size_t i = 0; i < arm.calib.size(); ++i) {
+        arm.calib[i] = std::max(1e-9, static_cast<double>(c[i]));
     }
-    RCLCPP_INFO(this->get_logger(), "force sensor calib LSB: %.3f %.3f %.3f %.3f %.3f %.3f",
-                calib_[0], calib_[1], calib_[2], calib_[3], calib_[4], calib_[5]);
-    flushSerial();
+    RCLCPP_INFO(this->get_logger(), "%s force sensor calibration: %.3f %.3f %.3f %.3f %.3f %.3f",
+                arm.side.c_str(), arm.calib[0], arm.calib[1], arm.calib[2], arm.calib[3], arm.calib[4], arm.calib[5]);
+    flushSerial(arm);
     return true;
 }
 
-bool WrenchController::startStream() {
-    if (fd_ < 0) {
+bool WrenchController::startStream(ArmContext & arm) {
+    std::lock_guard<std::mutex> lock(arm.serial_mutex);
+    return startStreamUnlocked(arm);
+}
+
+bool WrenchController::startStreamUnlocked(ArmContext & arm) {
+    if (arm.fd < 0) {
         return false;
     }
-    flushSerial();
+    if (arm.continuous_output_started.load()) {
+        return true;
+    }
 
+    flushSerial(arm);
     for (size_t i = 0; i < 3; ++i) {
-        if (!writeAll("O", 1)){
+        if (!writeAll(arm, "O", 1)){
             return false;
         };
     }
 
-    if (!writeAll("S", 1)) {
+    if (!writeAll(arm ,"S", 1)) {
         return false;
     }
 
-    continuous_output_started_.store(true);
+    arm.continuous_output_started.store(true);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    
-    flushSerial();
+    flushSerial(arm);
     return true;
 }
 
-bool WrenchController::stopStream() {
-    if (fd_ < 0) {
+bool WrenchController::stopStream(ArmContext & arm) {
+    std::lock_guard<std::mutex> lock(arm.serial_mutex);
+    return stopStreamUnlocked(arm);
+}
+
+bool WrenchController::stopStreamUnlocked(ArmContext & arm) {
+    std::lock_guard<std::mutex> lock(arm.serial_mutex);
+    if (arm.fd < 0) {
         return false;
     }
-    if (!continuous_output_started_.load()) {
+    if (!arm.continuous_output_started.load()) {
         return true;
     }
 
-    if (!writeAll("E", 1)) {
+    if (!writeAll(arm, "E", 1)) {
         RCLCPP_WARN(this->get_logger(), "Failed to send stop stream command.");
     }
-
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    continuous_output_started_.store(false);
-    flushSerial();
+    arm.continuous_output_started.store(false);
+    flushSerial(arm);
     return true;
 }
 
-bool WrenchController::handleTare() {
-    if (fd_ < 0) {
+bool WrenchController::handleTare(ArmContext & arm) {
+    if (arm.fd < 0) {
         return false;
     }
 
-    const bool was_continuous = acquisition_mode == "continuous" && continuous_output_started_.load();
+    const bool was_continuous = arm.acquisition_mode == "continuous" && arm.continuous_output_started.load();
     if (was_continuous) {
-        stopStream();
+        stopStreamUnlocked(arm);
     }
 
-    flushSerial();
+    flushSerial(arm);
     for (size_t i = 0; i < 3; ++i) {
-        if (!writeAll("O", 1)){
+        if (!writeAll(arm, "O", 1)){
             if (was_continuous) {
-                startStream();
+                startStreamUnlocked(arm);
             }
             return false;
         };
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    flushSerial();
-    filter_initialized = false;
+    flushSerial(arm);
+    arm.filter_initialized.store(false);
 
     if (was_continuous) {
-        startStream();
+        startStreamUnlocked(arm);
     }
     return false;  // Do not use a sample in the same cycle as tare.
 }
 
-// bool WrenchController::setFrequencyDivider(int div) {
-//     if (!(div == 1 || div == 2 || div == 4 || div == 8)) {
-//         return false;
-//     }
-//     flushSerial();
-//     std::lock_guard<std::mutex> lock(serial_mutex_);
-//     char cmd[3]{};
-//     std::snprintf(cmd, sizeof(cmd), "%dF", div);
-//     const bool ok = writeAll(cmd, 2);
-//     flushSerial();
-//     return ok;
-// }
-
-bool WrenchController::readExact(uint8_t *dst, size_t len, int timeout_ms) {
-    if (fd_ < 0 || dst == nullptr) {
+bool WrenchController::readExact(ArmContext & arm, uint8_t *dst, size_t len, int timeout_ms) {
+    if (arm.fd < 0 || dst == nullptr) {
         return false;
     }
     size_t total = 0;
@@ -399,7 +477,7 @@ bool WrenchController::readExact(uint8_t *dst, size_t len, int timeout_ms) {
         }
 
         pollfd pfd;
-        pfd.fd = fd_;
+        pfd.fd = arm.fd;
         pfd.events = POLLIN;
         const int ret = poll(&pfd, 1, remaining_ms);
         if (ret <= 0) {
@@ -415,116 +493,108 @@ bool WrenchController::readExact(uint8_t *dst, size_t len, int timeout_ms) {
             continue;
         }
 
-        const ssize_t n = read(fd_, dst + total, len - total);
+        const ssize_t n = read(arm.fd, dst + total, len - total);
         if (n > 0) {
             total += static_cast<size_t>(n);
             continue;
-        }else if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
-            continue;
-        } else {
-            return false;
         }
+        if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+            continue;
+        }
+        return false;
     }
     return true;
 }
 
-bool WrenchController::readSampleRequestResponse(Wrench6 & out) {
-    std::lock_guard<std::mutex> lock(serial_mutex_);
-    if (fd_ < 0) {
+bool WrenchController::readSampleRequestResponse(ArmContext & arm, Wrench6 & out) {
+    std::lock_guard<std::mutex> lock(arm.serial_mutex);
+    if (arm.fd < 0) {
         return false;
     }
-
-    if (tare_requested_.exchange(false)) {
-        return handleTare();
+    if (arm.tare_requested.exchange(false)) {
+        return handleTare(arm);
     }
 
-    flushSerial();
-    if (!writeAll("R", 1)) {
+    flushSerial(arm);
+    if (!writeAll(arm, "R", 1)) {
         return false;
     }
 
     std::array<uint8_t, WRENCH_DATA_LENGTH> frame;
-    if (!readExact(frame.data(), frame.size(), 2)) {
-        flushSerial();
+    if (!readExact(arm, frame.data(), frame.size(), 2)) {
+        flushSerial(arm);
         return false;
     }
-    return parseFrame(frame.data(), out);
+    return parseFrame(arm, frame.data(), out);
 }
 
-bool WrenchController::extractLatestFrame(std::array<uint8_t, WRENCH_DATA_LENGTH> & latest_frame) {
+bool WrenchController::extractLatestFrame(ArmContext & arm, std::array<uint8_t, WRENCH_DATA_LENGTH> & latest_frame) {
     bool found = false;
     size_t erase_until = 0;
 
-    for (size_t i = 0; i + 1 < continuous_rx_buffer_.size(); ++i) {
-        if (continuous_rx_buffer_[i] == CR && continuous_rx_buffer_[i + 1] == LF) {
-            if (i >= WRENCH_PAYLOAD_DATA_LENGTH) {
-                const size_t frame_start = i - WRENCH_PAYLOAD_DATA_LENGTH;
-                if (frame_start + WRENCH_DATA_LENGTH <= continuous_rx_buffer_.size()) {
-                    std::copy_n(continuous_rx_buffer_.begin() + frame_start, WRENCH_DATA_LENGTH, latest_frame.begin());
-                    found = true;
-                }
-            }
-            erase_until = i + 2;
-            ++i;
+    for (size_t i = 0; i + 1 < arm.continuous_rx_buffer.size(); ++i) {
+        if (arm.continuous_rx_buffer[i] != CR && arm.continuous_rx_buffer[i + 1] != LF) {
+            continue;
         }
+        if (i >= WRENCH_PAYLOAD_DATA_LENGTH) {
+            const size_t frame_start = i - WRENCH_PAYLOAD_DATA_LENGTH;
+            if (frame_start + WRENCH_DATA_LENGTH <= arm.continuous_rx_buffer.size()) {
+                std::copy_n(arm.continuous_rx_buffer.begin() + frame_start, WRENCH_DATA_LENGTH, latest_frame.begin());
+                found = true;
+            }
+        }
+        erase_until = i + 2;
+        ++i;
     }
 
     if (erase_until > 0) {
-        continuous_rx_buffer_.erase(continuous_rx_buffer_.begin(), continuous_rx_buffer_.begin() + erase_until);
+        arm.continuous_rx_buffer.erase(arm.continuous_rx_buffer.begin(), arm.continuous_rx_buffer.begin() + erase_until);
     }
     return found;
 }
 
-bool WrenchController::readStream(int timeout_ms) {
-    if (fd_ < 0) {
+bool WrenchController::readStream(ArmContext & arm, int timeout_ms) {
+    if (arm.fd < 0) {
         return false;
     }
 
     pollfd pfd;
-    pfd.fd = fd_;
+    pfd.fd = arm.fd;
     pfd.events = POLLIN;
     const int ret = ::poll(&pfd, 1, timeout_ms);
-
     if (ret < 0) {
         if (errno == EINTR) {
             return true;
         }
         return false;
     }
-    if (ret == 0) {
-        return false;
-    }
-    if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-        return false;
-    }
-    if (!(pfd.revents & POLLIN)) {
+    if (ret == 0 || (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) || !(pfd.revents & POLLIN)) {
         return false;
     }
 
     bool got_any = false;
     uint8_t buf[512];
     while (true) {
-        const ssize_t n = read(fd_, buf, sizeof(buf));
+        const ssize_t n = read(arm.fd, buf, sizeof(buf));
         if (n > 0) {
             got_any = true;
-            continuous_rx_buffer_.insert(continuous_rx_buffer_.end(), buf, buf + n);
+            arm.continuous_rx_buffer.insert(arm.continuous_rx_buffer.end(), buf, buf + n);
             const size_t max_buf = static_cast<size_t>(frame_rx_buffer_max_bytes);
-            if (continuous_rx_buffer_.size() > max_buf) {
+            if (arm.continuous_rx_buffer.size() > max_buf) {
                 const size_t keep = static_cast<size_t>(frame_rx_buffer_keep_bytes);
-                if (continuous_rx_buffer_.size() > keep) {
-                    continuous_rx_buffer_.erase(continuous_rx_buffer_.begin(), continuous_rx_buffer_.end() - keep);
+                if (arm.continuous_rx_buffer.size() > keep) {
+                    arm.continuous_rx_buffer.erase(arm.continuous_rx_buffer.begin(), arm.continuous_rx_buffer.end() - keep);
                 }
             }
             continue;
         }
-
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            break;
+        }
         if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                break;
-            }
             return false;
         }
         break;
@@ -532,47 +602,43 @@ bool WrenchController::readStream(int timeout_ms) {
     return got_any;
 }
 
-bool WrenchController::readSampleContinuous(Wrench6 & out) {
-    std::lock_guard<std::mutex> lock(serial_mutex_);
-    if (fd_ < 0) {
+bool WrenchController::readSampleContinuous(ArmContext & arm, Wrench6 & out) {
+    std::lock_guard<std::mutex> lock(arm.serial_mutex);
+    if (arm.fd < 0) {
+        return false;
+    }
+    if (arm.tare_requested.exchange(false)) {
+        return handleTare(arm);
+    }
+    if (!arm.continuous_output_started.load() && !startStreamUnlocked(arm)) {
         return false;
     }
 
-    if (tare_requested_.exchange(false)) {
-        return handleTare();
-    }
-
-    if (!continuous_output_started_.load()) {
-        if (!startStream()) {
-            return false;
-        }
-    }
-
-    if (!readStream(2)) {
+    if (!readStream(arm, 2)) {
         return false;
     }
 
     for (int i = 0; i < 10; ++i) {
-        if (!readStream(0)) {
+        if (!readStream(arm, 0)) {
             break;
         }
     }
 
     std::array<uint8_t, WRENCH_DATA_LENGTH> frame;
-    if (!extractLatestFrame(frame)) {
+    if (!extractLatestFrame(arm, frame)) {
         return false;
     }
-    return parseFrame(frame.data(), out);
+    return parseFrame(arm, frame.data(), out);
 }
 
-bool WrenchController::readSample(Wrench6 & out) {
-    if (acquisition_mode == "continuous") {
-        return readSampleContinuous(out);
+bool WrenchController::readSample(ArmContext & arm, Wrench6 & out) {
+    if (arm.acquisition_mode == "continuous") {
+        return readSampleContinuous(arm, out);
     }
-    return readSampleRequestResponse(out);
+    return readSampleRequestResponse(arm, out);
 }
 
-bool WrenchController::parseFrame(const uint8_t* frame, Wrench6& out) {
+bool WrenchController::parseFrame(ArmContext & arm, const uint8_t* frame, Wrench6& out) {
     if (frame == nullptr) {
         return false;
     }
@@ -582,10 +648,10 @@ bool WrenchController::parseFrame(const uint8_t* frame, Wrench6& out) {
     char payload[WRENCH_PAYLOAD_DATA_LENGTH + 1];
     std::memcpy(payload, frame, WRENCH_PAYLOAD_DATA_LENGTH);
     payload[WRENCH_PAYLOAD_DATA_LENGTH] = '\0';
-    return parseWrench(payload, out);
+    return parseWrench(arm, payload, out);
 }
 
-bool WrenchController::parseWrench(const char *payload, Wrench6& out) {
+bool WrenchController::parseWrench(ArmContext & arm, const char *payload, Wrench6& out) {
     if (payload == nullptr) {
         return false;
     }
@@ -598,123 +664,63 @@ bool WrenchController::parseWrench(const char *payload, Wrench6& out) {
         return false;
     }
 
-    out.fx = (static_cast<double>(raw[0]) - lbs_val) / calib_[0];
-    out.fy = (static_cast<double>(raw[1]) - lbs_val) / calib_[1];
-    out.fz = (static_cast<double>(raw[2]) - lbs_val) / calib_[2];
-    out.mx = (static_cast<double>(raw[3]) - lbs_val) / calib_[3];
-    out.my = (static_cast<double>(raw[4]) - lbs_val) / calib_[4];
-    out.mz = (static_cast<double>(raw[5]) - lbs_val) / calib_[5];
+    out.fx = (static_cast<double>(raw[0]) - lbs_val) / arm.calib[0];
+    out.fy = (static_cast<double>(raw[1]) - lbs_val) / arm.calib[1];
+    out.fz = (static_cast<double>(raw[2]) - lbs_val) / arm.calib[2];
+    out.mx = (static_cast<double>(raw[3]) - lbs_val) / arm.calib[3];
+    out.my = (static_cast<double>(raw[4]) - lbs_val) / arm.calib[4];
+    out.mz = (static_cast<double>(raw[5]) - lbs_val) / arm.calib[5];
     return true;
 }
 
-bool WrenchController::buildDefaultNoidRightArmJointMapping(const std::vector<std::string> & raw_kdl_joint_names, std::vector<KdlActiveJointMapping> & mapping) {
+bool WrenchController::buildDefaultNoidArmJointMapping(const ArmContext & arm, const std::vector<std::string> & raw_kdl_joint_names, std::vector<KdlActiveJointMapping> & mapping) {
     mapping.clear();
     mapping.reserve(raw_kdl_joint_names.size());
+    std::vector<bool> active_used(arm.active_joint_names.size(), false);
 
-    std::vector<bool> active_used(active_joint_names.size(), false);
-
+    const std::string elbow = arm.joint_prefix + "_elbow_joint";
     for (const auto & raw_name : raw_kdl_joint_names) {
         std::string active_name = raw_name;
         double multiplier = 1.0;
-        double offset = 0.0;
 
-        if (raw_name == "r_elbow_joint_mimic") {
-            active_name = "r_elbow_joint";
+        if (raw_name == arm.joint_prefix + "_elbow_joint_mimic") {
+            active_name = elbow;
             multiplier = -1.0;
-        } else if (raw_name == "r_elbow_middle_joint") {
-            active_name = "r_elbow_joint";
+        } else if (raw_name == arm.joint_prefix + "_elbow_middle_joint") {
+            active_name = elbow;
             multiplier = 0.591222;
-        } else if (raw_name == "r_elbow_middle_joint_mimic") {
-            active_name = "r_elbow_joint";
+        } else if (raw_name == arm.joint_prefix + "_elbow_middle_joint_mimic") {
+            active_name = elbow;
             multiplier = 0.408778;
         }
 
-        const int active_index = findActiveJointIndex(active_name);
+        const int active_index = findActiveJointIndex(arm, active_name);
         if (active_index < 0) {
-            RCLCPP_ERROR(get_logger(), "KDL joint '%s' maps to active joint '%s', but active joint is not listed. active=[%s]",
-                raw_name.c_str(), active_name.c_str(), joinStrings(active_joint_names).c_str());
+            RCLCPP_ERROR(this->get_logger(), "KDL joint '%s' maps to active joint '%s', but active joint is not listed. active=[%s]",
+                raw_name.c_str(), active_name.c_str(), joinStrings(arm.active_joint_names).c_str());
             return false;
         }
 
         active_used[static_cast<size_t>(active_index)] = true;
-        mapping.push_back(KdlActiveJointMapping{raw_name, active_name, active_index, multiplier, offset});
+        mapping.push_back({raw_name, active_name, active_index, multiplier, 0.0});
     }
 
     std::vector<std::string> missing;
-    for (size_t i = 0; i < active_joint_names.size(); ++i) {
+    for (size_t i = 0; i < active_used.size(); ++i) {
         if (!active_used[i]) {
-        missing.push_back(active_joint_names[i]);
+            missing.push_back(arm.active_joint_names[i]);
         }
     }
 
     if (!missing.empty()) {
-        RCLCPP_ERROR(get_logger(), "KDL chain does not contain active right-arm joints=[%s]. Check base_link='%s' and tip_link='%s'. raw_kdl=[%s]",
-        joinStrings(missing).c_str(), base_link_.c_str(), tip_link_.c_str(), joinStrings(raw_kdl_joint_names).c_str());
+        RCLCPP_ERROR(this->get_logger(), "KDL chain does not contain active right-arm joints=[%s]. Check base_link='%s' and tip_link='%s'. raw_kdl=[%s]",
+        joinStrings(missing).c_str(), arm.base_link.c_str(), arm.tip_link.c_str(), joinStrings(raw_kdl_joint_names).c_str());
         return false;
     }
-
     return true;
 }
 
-// bool WrenchController::buildConfiguredJointMapping(const std::vector<std::string> & raw_kdl_joint_names, std::vector<KdlActiveJointMapping> & mapping) {
-//     mapping.clear();
-
-//     if (configured_kdl_joint_names_.empty() || configured_active_joint_names_.empty()) {
-//         return false;
-//     }
-//     if (configured_kdl_joint_names_.size() != configured_active_joint_names_.size()) {
-//         RCLCPP_ERROR(get_logger(), "kdl_joint_names and kdl_active_joint_names must have the same length.");
-//         return false;
-//     }
-//     if (!configured_kdl_to_active_multipliers_.empty() && configured_kdl_to_active_multipliers_.size() != configured_kdl_joint_names_.size()) {
-//         RCLCPP_ERROR(get_logger(), "kdl_to_active_multipliers must be empty or have the same length as kdl_joint_names.");
-//         return false;
-//     }
-//     if (!configured_kdl_to_active_offsets_.empty() && configured_kdl_to_active_offsets_.size() != configured_kdl_joint_names_.size()) {
-//         RCLCPP_ERROR(get_logger(), "kdl_to_active_offsets must be empty or have the same length as kdl_joint_names.");
-//         return false;
-//     }
-
-//     std::vector<bool> active_used(active_joint_names.size(), false);
-//     mapping.reserve(raw_kdl_joint_names.size());
-
-//     for (const auto & raw_name : raw_kdl_joint_names) {
-//         const auto it = std::find(configured_kdl_joint_names_.begin(), configured_kdl_joint_names_.end(), raw_name);
-//         if (it == configured_kdl_joint_names_.end()) {
-//             RCLCPP_ERROR(get_logger(), "KDL joint '%s' has no configured mapping. Configure kdl_joint_names/kdl_active_joint_names or enable use_noid_right_arm_default_mapping.", raw_name.c_str());
-//             return false;
-//         }
-
-//         const size_t map_index = static_cast<size_t>(std::distance(configured_kdl_joint_names_.begin(), it));
-//         const std::string & active_name = configured_active_joint_names_[map_index];
-//         const int active_index = findActiveJointIndex(active_name);
-//         if (active_index < 0) {
-//             RCLCPP_ERROR(get_logger(), "Configured active joint '%s' for KDL joint '%s' is not in active_joint_names=[%s].", active_name.c_str(), raw_name.c_str(), joinStrings(active_joint_names).c_str());
-//             return false;
-//         }
-
-//         const double multiplier = configured_kdl_to_active_multipliers_.empty() ? 1.0 : configured_kdl_to_active_multipliers_[map_index];
-//         const double offset = configured_kdl_to_active_offsets_.empty() ? 0.0 : configured_kdl_to_active_offsets_[map_index];
-
-//         active_used[static_cast<size_t>(active_index)] = true;
-//         mapping.push_back(KdlActiveJointMapping{raw_name, active_name, active_index, multiplier, offset});
-//     }
-
-//     std::vector<std::string> missing;
-//     for (size_t i = 0; i < active_joint_names.size(); ++i) {
-//         if (!active_used[i]) {
-//         missing.push_back(active_joint_names[i]);
-//         }
-//     }
-//     if (!missing.empty()) {
-//         RCLCPP_ERROR(get_logger(), "Configured KDL mapping does not cover active joints=[%s].", joinStrings(missing).c_str());
-//         return false;
-//     }
-
-//     return true;
-// }
-
-bool WrenchController::buildKinematicsFromUrdf(const std::string & robot_description) {
+bool WrenchController::buildKinematicsFromUrdfForArm(ArmContext & arm, const std::string & robot_description) {
     KDL::Tree tree;
     if (!kdl_parser::treeFromString(robot_description, tree)) {
         RCLCPP_ERROR(this->get_logger(), "Failed to parse robot_description as KDL tree.");
@@ -722,8 +728,8 @@ bool WrenchController::buildKinematicsFromUrdf(const std::string & robot_descrip
     }
 
     KDL::Chain chain;
-    if (!tree.getChain(base_link_, tip_link_, chain)) {
-        RCLCPP_ERROR(this->get_logger(), "Failed to get KDL chain from base='%s' to tip='%s'. Set base_link/tip_link correctly.", base_link_.c_str(), tip_link_.c_str());
+    if (!tree.getChain(arm.base_link, arm.tip_link, chain)) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to get KDL chain from base='%s' to tip='%s'. Set base_link/tip_link correctly.", arm.base_link.c_str(), arm.tip_link.c_str());
         return false;
     }
 
@@ -736,27 +742,23 @@ bool WrenchController::buildKinematicsFromUrdf(const std::string & robot_descrip
     }
 
     std::vector<KdlActiveJointMapping> mapping;
-    bool mapping_ok = false;
-    mapping_ok = buildDefaultNoidRightArmJointMapping(raw_kdl_joint_names, mapping);
-    // mapping_ok = buildConfiguredJointMapping(raw_kdl_joint_names, mapping);
-
-    if (!mapping_ok) {
+    if (!buildDefaultNoidArmJointMapping(arm, raw_kdl_joint_names, mapping)) {
         return false;
     }
-    if (raw_kdl_joint_names.size() != mapping.size()) {
-        RCLCPP_ERROR(get_logger(), "Internal error: raw_kdl_joint_names and mapping sizes differ.");
+    if (mapping.size() != raw_kdl_joint_names.size() || mapping.size() != chain.getNrOfJoints()) {
+        RCLCPP_ERROR(this->get_logger(), "%s: KDL joint/mapping size mismatch.", arm.side.c_str());
         return false;
     }
 
     {
-        std::lock_guard<std::mutex> lock(kdl_mutex);
-        chain_ = chain;
-        raw_kdl_joint_names_ = raw_kdl_joint_names;
-        kdl_active_mapping_ = mapping;
-        fk_solver_ = std::make_unique<KDL::ChainFkSolverPos_recursive>(chain_);
-        jac_solver_ = std::make_unique<KDL::ChainJntToJacSolver>(chain_);
+        std::lock_guard<std::mutex> lock(arm.kdl_mutex);
+        arm.chain = chain;
+        arm.raw_kdl_joint_names = raw_kdl_joint_names;
+        arm.kdl_active_mapping = mapping;
+        arm.fk_solver = std::make_unique<KDL::ChainFkSolverPos_recursive>(arm.chain);
+        arm.jac_solver = std::make_unique<KDL::ChainJntToJacSolver>(arm.chain);
     }
-    kinematics_ready.store(true);
+    arm.kinematics_ready.store(true);
 
     std::vector<std::string> map_strings;
     for (const auto & m : mapping) {
@@ -775,13 +777,13 @@ bool WrenchController::buildKinematicsFromUrdf(const std::string & robot_descrip
         oss << map_strings[i];
     }
 
-    RCLCPP_INFO(this->get_logger(), "KDL chain ready: base=%s tip=%s", base_link_.c_str(), tip_link_.c_str());
-    RCLCPP_INFO(get_logger(), "KDL-to-active mapping=[%s]", oss.str().c_str());
+    RCLCPP_INFO(this->get_logger(), "KDL chain ready: base=%s tip=%s", arm.base_link.c_str(), arm.tip_link.c_str());
+    RCLCPP_INFO(this->get_logger(), "KDL-to-active mapping=[%s]", oss.str().c_str());
     return true;
 }
 
-bool WrenchController::getActiveJointPositions(std::vector<double> & active_q, std::vector<std::string> & names) {
-    if (!kinematics_ready.load() || !have_joint_state.load()) {
+bool WrenchController::getActiveJointPositions(const ArmContext & arm, std::vector<double> & active_q) {
+    if (!arm.kinematics_ready.load() || !have_joint_state.load()) {
         return false;
     }
 
@@ -790,62 +792,32 @@ bool WrenchController::getActiveJointPositions(std::vector<double> & active_q, s
         return false;
     }
 
-    active_q.assign(active_joint_names.size(), 0.0);
-    for (size_t i = 0; i < active_joint_names.size(); ++i) {
-        const auto it = latest_joint_position.find(active_joint_names[i]);
+    active_q.assign(arm.active_joint_names.size(), 0.0);
+    for (size_t i = 0; i < arm.active_joint_names.size(); ++i) {
+        const auto it = latest_joint_position.find(arm.active_joint_names[i]);
         if (it == latest_joint_position.end()) {
             return false;
         }
         active_q[i] = it->second;
     }
-
-    names = active_joint_names;
     return true;
 }
 
-bool WrenchController::getCurrentJointArray(KDL::JntArray & q, std::vector<std::string> & names) {
-    std::vector<double> active_q;
-    std::vector<std::string> active_names;
-    if (!getActiveJointPositions(active_q, active_names)) {
-        return false;
-    }
-
-    std::vector<KdlActiveJointMapping> mapping;
-    std::vector<std::string> raw_names;
-    {
-        std::lock_guard<std::mutex> lock(kdl_mutex);
-        mapping = kdl_active_mapping_;
-        raw_names = raw_kdl_joint_names_;
-    }
-
-    if (mapping.empty() || mapping.size() != raw_names.size()) {
-        return false;
-    }
-
-    q = KDL::JntArray(mapping.size());
-    for (size_t i = 0; i < mapping.size(); ++i) {
-        const auto & m = mapping[i];
-        if (m.active_index < 0 || static_cast<size_t>(m.active_index) >= active_q.size()) {
-            return false;
-        }
-        q(i) = m.multiplier * active_q[static_cast<size_t>(m.active_index)] + m.offset;
-    }
-    names = raw_names;
-    return true;
-}
-
-int WrenchController::findActiveJointIndex(const std::string & name) {
-    const auto it = std::find(active_joint_names.begin(), active_joint_names.end(), name);
-    if (it == active_joint_names.end()) {
+int WrenchController::findActiveJointIndex(const ArmContext & arm, const std::string & name) {
+    const auto it = std::find(arm.active_joint_names.begin(), arm.active_joint_names.end(), name);
+    if (it == arm.active_joint_names.end()) {
         return -1;
     }
-    return static_cast<int>(std::distance(active_joint_names.begin(), it));
+    return static_cast<int>(std::distance(arm.active_joint_names.begin(), it));
 }
 
-KDL::Frame WrenchController::makeSensorFrameFromParams() const {
+KDL::Frame WrenchController::makeSensorFrameFromParams(const ArmContext & arm) const {
+    if (arm.sensor_xyz_in_tip.size() != 3 || arm.sensor_rpy_in_tip.size() != 3) {
+        return KDL::Frame::Identity();
+    }
     return KDL::Frame(
-        KDL::Rotation::RPY(sensor_rpy_in_tip[0], sensor_rpy_in_tip[1], sensor_rpy_in_tip[2]),
-        KDL::Vector(sensor_xyz_in_tip[0], sensor_xyz_in_tip[1], sensor_xyz_in_tip[2])
+        KDL::Rotation::RPY(arm.sensor_rpy_in_tip[0], arm.sensor_rpy_in_tip[1], arm.sensor_rpy_in_tip[2]),
+        KDL::Vector(arm.sensor_xyz_in_tip[0], arm.sensor_xyz_in_tip[1], arm.sensor_xyz_in_tip[2])
     );
 }
 
@@ -856,47 +828,42 @@ KDL::Vector WrenchController::cross(const KDL::Vector & a, const KDL::Vector & b
       a.x() * b.y() - a.y() * b.x());
 }
 
-bool WrenchController::computeTauFromWrench(const Wrench6 & sensor_wrench, std::vector<double> & tau_out) {
-    KDL::JntArray q_raw;
-    std::vector<std::string> raw_names;
-    if (!getCurrentJointArray(q_raw, raw_names)) {
+bool WrenchController::computeTauFromWrench(ArmContext & arm, const Wrench6 & sensor_wrench, std::vector<double> & tau_out) {
+    std::vector<double> active_q;
+    if (!getActiveJointPositions(arm, active_q)) {
         return false;
     }
 
-    KDL::Chain chain_copy;
-    std::unique_ptr<KDL::ChainFkSolverPos_recursive> fk;
-    std::unique_ptr<KDL::ChainJntToJacSolver> jac_solver;
-    std::vector<KdlActiveJointMapping> mapping;
-    std::vector<std::string> active_names;
-    {
-        std::lock_guard<std::mutex> lock(kdl_mutex);
-        chain_copy = chain_;
-        mapping = kdl_active_mapping_;
-        active_names = active_joint_names;
-        fk = std::make_unique<KDL::ChainFkSolverPos_recursive>(chain_copy);
-        jac_solver = std::make_unique<KDL::ChainJntToJacSolver>(chain_copy);
+    std::lock_guard<std::mutex> lock(arm.kdl_mutex);
+    if (!arm.fk_solver || !arm.jac_solver || arm.kdl_active_mapping.empty()) {
+        return false;
     }
 
-    if (mapping.empty() || mapping.size() != q_raw.rows()) {
-        return false;
+    KDL::JntArray q_raw(arm.kdl_active_mapping.size());
+    for (size_t i = 0; i < arm.kdl_active_mapping.size(); ++i) {
+        const auto & map = arm.kdl_active_mapping[i];
+        if (map.active_index < 0 || static_cast<size_t>(map.active_index) >= active_q.size()) {
+            return false;
+        }
+        q_raw(i) = map.multiplier * active_q[static_cast<size_t>(map.active_index)] +
+        map.offset;
     }
 
     KDL::Frame base_T_tip;
-    if (fk->JntToCart(q_raw, base_T_tip) < 0) {
+    if (arm.fk_solver->JntToCart(q_raw, base_T_tip) < 0) {
         return false;
     }
 
     KDL::Jacobian jac(q_raw.rows());
-    if (jac_solver->JntToJac(q_raw, jac) < 0) {
+    if (arm.jac_solver->JntToJac(q_raw, jac) < 0) {
         return false;
     }
 
     KDL::Vector f_sensor(sensor_wrench.fx, sensor_wrench.fy, sensor_wrench.fz);
     KDL::Vector m_sensor(sensor_wrench.mx, sensor_wrench.my, sensor_wrench.mz);
 
-    KDL::Vector f_tip = tip_T_sensor.M * f_sensor;
-    KDL::Vector m_tip = tip_T_sensor.M * m_sensor + cross(tip_T_sensor.p, f_tip);
-
+    KDL::Vector f_tip = arm.tip_T_sensor.M * f_sensor;
+    KDL::Vector m_tip = arm.tip_T_sensor.M * m_sensor + cross(arm.tip_T_sensor.p, f_tip);
     KDL::Vector f_base = base_T_tip.M * f_tip;
     KDL::Vector m_base = base_T_tip.M * m_tip;
 
@@ -907,20 +874,18 @@ bool WrenchController::computeTauFromWrench(const Wrench6 & sensor_wrench, std::
         jac(3, j) * m_base.x() + jac(4, j) * m_base.y() + jac(5, j) * m_base.z();
     }
 
-    tau_out.assign(active_names.size(), 0.0);
-    const size_t n = std::min(mapping.size(), tau_raw.size());
-    for (size_t i = 0; i < n; ++i) {
-        const auto & m = mapping[i];
-        if (m.active_index < 0 || static_cast<size_t>(m.active_index) >= tau_out.size()) {
+    if (tau_raw.size() != arm.kdl_active_mapping.size()) {
+        return false;
+    }
+
+    tau_out.assign(arm.active_joint_names.size(), 0.0);
+    for (size_t i = 0; i < tau_raw.size(); ++i) {
+        const auto & map = arm.kdl_active_mapping[i];
+        if (map.active_index < 0 || static_cast<size_t>(map.active_index) >= tau_out.size()) {
             continue;
         }
-        tau_out[static_cast<size_t>(m.active_index)] += m.multiplier * tau_raw[i];
+        tau_out[static_cast<size_t>(map.active_index)] += map.multiplier * tau_raw[i];
     }
-
-    if (publish_tau_debug && tau_pub_) {
-        publishTauDebug(tau_out, active_names);
-    }
-
     return true;
 }
 
@@ -966,91 +931,90 @@ void WrenchController::wrenchLoop() {
     while (rclcpp::ok() && running_.load()) {
         next += std::chrono::duration_cast<clock::duration>(period);
 
-        Wrench6 w;
-        if (!readSample(w)) {
-            publishPassThroughOrNeutral();
-            std::this_thread::sleep_until(next);
-            continue;
+        std::vector<double> right_tau;
+        std::vector<double> left_tau;
+        const bool right_reflection = processArmSample(right_arm_, right_tau);
+        const bool left_reflection = processArmSample(left_arm_, left_tau);
+
+        publishMergedCurrent(
+            right_reflection ? &right_tau : nullptr, right_reflection,
+            left_reflection ? &left_tau : nullptr, left_reflection
+        );
+
+        const auto now_tp = clock::now();
+        if (now_tp > next + std::chrono::duration_cast<clock::duration>(period)) {
+        next = now_tp;
         }
-
-        // std::cout<<"-------------Wrench6-------------"<<std::endl;
-        // std::cout<<"fx : "<< w.fx <<std::endl;
-        // std::cout<<"fy : "<< w.fy <<std::endl;
-        // std::cout<<"fz : "<< w.fz <<std::endl;
-        // std::cout<<"mx : "<< w.mx <<std::endl;
-        // std::cout<<"my : "<< w.my <<std::endl;
-        // std::cout<<"mz : "<< w.mz <<std::endl;
-        // std::cout<<"---------------------------------"<<std::endl;
-
-        if (!filter_initialized) {
-            filtered_ = w;
-            filter_initialized = true;
-        } else {
-            const double a = std::clamp(lowpass_alpha, 0.0, 1.0);
-            filtered_.fx = a * w.fx + (1.0 - a) * filtered_.fx;
-            filtered_.fy = a * w.fy + (1.0 - a) * filtered_.fy;
-            filtered_.fz = a * w.fz + (1.0 - a) * filtered_.fz;
-            filtered_.mx = a * w.mx + (1.0 - a) * filtered_.mx;
-            filtered_.my = a * w.my + (1.0 - a) * filtered_.my;
-            filtered_.mz = a * w.mz + (1.0 - a) * filtered_.mz;
-        }
-
-        Wrench6 gated = filtered_;
-        gated.fx = applyDeadband(gated.fx, force_deadband);
-        gated.fy = applyDeadband(gated.fy, force_deadband);
-        gated.fz = applyDeadband(gated.fz, force_deadband);
-        gated.mx = applyDeadband(gated.mx, torque_deadband);
-        gated.my = applyDeadband(gated.my, torque_deadband);
-        gated.mz = applyDeadband(gated.mz, torque_deadband);
-
-        const double force_norm = norm3(gated.fx, gated.fy, gated.fz);
-        const double torque_norm = norm3(gated.mx, gated.my, gated.mz);
-        const bool collision = (force_norm >= force_threshold) || (torque_norm >= torque_threshold);
-
-        if (publish_wrench_debug && wrench_sensor_pub_) {
-            geometry_msgs::msg::WrenchStamped msg;
-            msg.header.stamp = now();
-            msg.header.frame_id = "force_sensor_base";
-            msg.wrench.force.x = filtered_.fx;
-            msg.wrench.force.y = filtered_.fy;
-            msg.wrench.force.z = filtered_.fz;
-            msg.wrench.torque.x = filtered_.mx;
-            msg.wrench.torque.y = filtered_.my;
-            msg.wrench.torque.z = filtered_.mz;
-            wrench_sensor_pub_->publish(msg);
-        }
-
-        if (!on_force_feedback_.load() || !collision) {
-            publishPassThroughOrNeutral();
-            std::this_thread::sleep_until(next);
-            continue;
-        }
-
-        std::vector<double> tau;
-        if (!computeTauFromWrench(gated, tau)) {
-            publishPassThroughOrNeutral();
-            std::this_thread::sleep_until(next);
-            continue;
-        }
-
-        publishMergedCurrent(&tau, true);
         std::this_thread::sleep_until(next);
     }
 }
 
-void WrenchController::resetReflectionDelta() {
-    std::fill(last_current_delta.begin(), last_current_delta.end(), 0.0);
-    last_current_publish_time = now();
+bool WrenchController::processArmSample(ArmContext & arm, std::vector<double> & tau_out) {
+    if (!arm.sensor_ready.load()) {
+        return false;
+    }
+
+    Wrench6 raw;
+    if (!readSample(arm, raw)) {
+        return false;
+    }
+
+    if (!arm.filter_initialized.exchange(true)) {
+        arm.filtered = raw;
+    } else {
+        const double a = std::clamp(arm.lowpass_alpha, 0.0, 1.0);
+        arm.filtered.fx = a * raw.fx + (1.0 - a) * arm.filtered.fx;
+        arm.filtered.fy = a * raw.fy + (1.0 - a) * arm.filtered.fy;
+        arm.filtered.fz = a * raw.fz + (1.0 - a) * arm.filtered.fz;
+        arm.filtered.mx = a * raw.mx + (1.0 - a) * arm.filtered.mx;
+        arm.filtered.my = a * raw.my + (1.0 - a) * arm.filtered.my;
+        arm.filtered.mz = a * raw.mz + (1.0 - a) * arm.filtered.mz;
+    }
+
+    if (publish_wrench_debug && arm.wrench_pub) {
+        publishWrenchDebug(arm, arm.filtered, arm.sensor_frame_id);
+    }
+
+    Wrench6 gated = arm.filtered;
+    gated.fx = applyDeadband(gated.fx, arm.force_deadband);
+    gated.fy = applyDeadband(gated.fy, arm.force_deadband);
+    gated.fz = applyDeadband(gated.fz, arm.force_deadband);
+    gated.mx = applyDeadband(gated.mx, arm.torque_deadband);
+    gated.my = applyDeadband(gated.my, arm.torque_deadband);
+    gated.mz = applyDeadband(gated.mz, arm.torque_deadband);
+
+    const bool collision = norm3(gated.fx, gated.fy, gated.fz) >= arm.force_threshold || norm3(gated.mx, gated.my, gated.mz) >= arm.torque_threshold;
+    if (!on_force_feedback_.load() || !collision) {
+        return false;
+    }
+
+    if (!computeTauFromWrench(arm, gated, tau_out)) {
+        return false;
+    }
+
+    if (publish_tau_debug && arm.tau_pub) {
+        publishTauDebug(arm, tau_out, arm.active_joint_names);
+    }
+    return true;
+}
+
+void WrenchController::resetReflectionDelta(ArmContext & arm) {
+    std::fill(arm.last_current_delta.begin(), arm.last_current_delta.end(), 0.0);
+    arm.last_current_publish_time = now();
+}
+
+void WrenchController::resetAllReflectionDeltas() {
+    resetReflectionDelta(right_arm_);
+    resetReflectionDelta(left_arm_);
 }
 
 void WrenchController::publishPassThroughOrNeutral() {
-    resetReflectionDelta();
-    auto msg = makeOutputFromBaseOrNeutral();
-    current_pub_->publish(msg);
+    resetAllReflectionDeltas();
+    current_pub_->publish(makeOutputFromBaseOrNeutral());
 }
 
 void WrenchController::publishNeutralCurrent() {
-    resetReflectionDelta();
+    resetAllReflectionDeltas();
     aero_controller_msgs::msg::Current msg;
     fillNeutral(msg);
 
@@ -1062,54 +1026,82 @@ void WrenchController::publishNeutralCurrent() {
     current_pub_->publish(msg);
 }
 
-void WrenchController::publishMergedCurrent(const std::vector<double> * tau, bool has_reflection) {
+void WrenchController::publishMergedCurrent(const std::vector<double> * right_tau, bool right_has_reflection, const std::vector<double> * left_tau, bool left_has_reflection) {
     auto msg = makeOutputFromBaseOrNeutral();
 
-    if (!has_reflection || tau == nullptr || !on_force_feedback_.load()) {
-        resetReflectionDelta();
-        current_pub_->publish(msg);
-        return;
+    const bool global_enabled = on_force_feedback_.load();
+    if (global_enabled && right_has_reflection && right_tau != nullptr) {
+        mergeArmCurrent(msg, right_arm_, *right_tau);
+    } else {
+        resetReflectionDelta(right_arm_);
     }
 
+    if (global_enabled && left_has_reflection && left_tau != nullptr){
+        mergeArmCurrent(msg, left_arm_, *left_tau);
+    } else {
+        resetReflectionDelta(left_arm_);
+    }
+    current_pub_->publish(msg);
+}
+
+void WrenchController::mergeArmCurrent(aero_controller_msgs::msg::Current & msg, ArmContext & arm, const std::vector<double> & tau) {
     const rclcpp::Time t = now();
-    double dt = (t - last_current_publish_time).seconds();
+    double dt = (t - arm.last_current_publish_time).seconds();
     if (!(dt > 0.0) || dt > 1.0) {
         dt = 1.0 / std::max(1.0, sample_rate_hz);
     }
-    last_current_publish_time = t;
+    arm.last_current_publish_time = t;
 
-    const size_t n = std::min({tau->size(), arm_joint_indices.size(), current_signs.size(), current_gains.size(), last_current_delta.size()});
-    const double max_step = max_delta_rate_per_sec_ * dt;
+    if (tau.size() != arm.arm_joint_indices.size() || tau.size() != arm.current_signs.size() || tau.size() != arm.current_gains.size() || tau.size() != arm.last_current_delta.size()) {
+        RCLCPP_ERROR_THROTTLE( this->get_logger(), *get_clock(), 1000, "%s reflection vector/parameter size mismatch.", arm.side.c_str());
+        resetReflectionDelta(arm);
+        return;
+    }
 
-    for (size_t axis = 0; axis < n; ++axis) {
-        const int tracer_index = static_cast<int>(arm_joint_indices[axis]);
-        if (tracer_index < 0 || tracer_index >= MOTOR_COUNT) {
+    const double max_step = std::max(0.0, arm.max_delta_rate_per_sec) * dt;
+    for (size_t axis = 0; axis < tau.size(); ++axis) {
+        const int tracer_index = static_cast<int>(arm.arm_joint_indices[axis]);
+        if (tracer_index < 0 || tracer_index >= MOTOR_COUNT || isProtectedTracerIndex(tracer_index)) {
             continue;
         }
-        if (isProtectedTracerIndex(tracer_index)) {
-            continue;
-        }
 
-        double tau_i = applyDeadband((*tau)[axis], tau_deadband);
-        double target_delta = current_signs[axis] * current_gains[axis] * tau_i;
-        target_delta = std::clamp(target_delta, -static_cast<double>(max_current_delta), static_cast<double>(max_current_delta));
+        const double tau_i = applyDeadband(tau[axis], arm.tau_deadband);
+        double target_delta = arm.current_signs[axis] * arm.current_gains[axis] * tau_i;
+        target_delta = std::clamp(target_delta, -static_cast<double>(arm.max_current_delta), static_cast<double>(arm.max_current_delta));
 
-        const double diff = target_delta - last_current_delta[axis];
         double limited_delta = target_delta;
         if (max_step > 0.0) {
-            if (diff > max_step) {
-                limited_delta = last_current_delta[axis] + max_step;
-            } else if (diff < -max_step) {
-                limited_delta = last_current_delta[axis] - max_step;
-            }
+            const double diff = target_delta - arm.last_current_delta[axis];
+            limited_delta = arm.last_current_delta[axis] + std::clamp(diff, -max_step, max_step);
         }
-        last_current_delta[axis] = limited_delta;
-        limited_delta = std::abs(limited_delta); //正方向の電流値として扱う
-        const int merged_current_raw = static_cast<int>(std::llround(limited_delta));
-        const int merged_current = convertCurrentValue(merged_current_raw);
-        setCurrentWord(msg, tracer_index, clampCurrent(merged_current));
+        arm.last_current_delta[axis] = limited_delta;
+
+        limited_delta = std::abs(limited_delta); //正方向の電流値として扱う暫定対策
+        const int current_count = static_cast<int>(std::llround(limited_delta));
+        const int protocol_current = convertCurrentValue(current_count);
+        setCurrentWord(msg, tracer_index, clampCurrent(protocol_current));
     }
-    current_pub_->publish(msg);
+}
+
+void WrenchController::publishWrenchDebug(ArmContext & arm, const Wrench6 & wrench, const std::string & frame_id) {
+    geometry_msgs::msg::WrenchStamped msg;
+    msg.header.stamp = now();
+    msg.header.frame_id = frame_id;
+    msg.wrench.force.x = wrench.fx;
+    msg.wrench.force.y = wrench.fy;
+    msg.wrench.force.z = wrench.fz;
+    msg.wrench.torque.x = wrench.mx;
+    msg.wrench.torque.y = wrench.my;
+    msg.wrench.torque.z = wrench.mz;
+    arm.wrench_pub->publish(msg);
+}
+
+void WrenchController::publishTauDebug(ArmContext & arm, const std::vector<double> & tau, const std::vector<std::string> & names) {
+    sensor_msgs::msg::JointState msg;
+    msg.header.stamp = now();
+    msg.name = names;
+    msg.effort = tau;
+    arm.tau_pub->publish(msg);
 }
 
 void WrenchController::fillNeutral(aero_controller_msgs::msg::Current & msg) const {
@@ -1122,19 +1114,13 @@ void WrenchController::fillNeutral(aero_controller_msgs::msg::Current & msg) con
 int WrenchController::convertCurrentValue(int current_val) {
     // valを20で割り、-127～127に制限
     int driver_current_val = current_val / 20;
-    if (driver_current_val > 127) {
-        driver_current_val = 127;
-    } else if (driver_current_val < -127) {
-        driver_current_val = -127;
-    }
-
+    driver_current_val = std::clamp(driver_current_val, -127, 127);
     // 符号付き8bit値として格納
     const int8_t driver_current_val_hex = static_cast<int8_t>(driver_current_val);
     // 同じビット列を符号なし8bit値として解釈
     const uint8_t driver_current_val_hex_u = static_cast<uint8_t>(driver_current_val_hex);
     // 変換後の値を50倍
     const int res = static_cast<int>(driver_current_val_hex_u) * 50;
-
     return res;
 }
 
@@ -1160,14 +1146,6 @@ double WrenchController::applyDeadband(double value, double deadband) {
 
 double WrenchController::norm3(double x, double y, double z) {
     return std::sqrt(x * x + y * y + z * z);
-}
-
-void WrenchController::publishTauDebug(const std::vector<double> & tau, const std::vector<std::string> & names) {
-    sensor_msgs::msg::JointState msg;
-    msg.header.stamp = now();
-    msg.name = names;
-    msg.effort = tau;
-    tau_pub_->publish(msg);
 }
 
 std::string WrenchController::joinStrings(const std::vector<std::string> & values) {
