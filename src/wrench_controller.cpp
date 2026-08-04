@@ -415,7 +415,6 @@ bool WrenchController::stopStream(ArmContext & arm) {
 }
 
 bool WrenchController::stopStreamUnlocked(ArmContext & arm) {
-    std::lock_guard<std::mutex> lock(arm.serial_mutex);
     if (arm.fd < 0) {
         return false;
     }
