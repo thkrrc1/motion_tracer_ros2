@@ -113,29 +113,30 @@ void TracerTeleop::txLoop() {
             return;
         }
 
-        // 初期化
-        std::vector<uint16_t> currents(current_copy.size()/2, 0);
+        if (on_tracer_mode) {
+            // 初期化
+            std::vector<uint16_t> currents(current_copy.size()/2, 0);
 
-        // 受信した電流値を一旦すべて詰める
-        for (unsigned int idx = 0; idx < currents.size(); ++idx) {
-            currents[idx] = static_cast<uint16_t>(current_copy[idx * 2]) << 8 |
-                                static_cast<uint16_t>(current_copy[idx * 2 + 1]);
+            // 受信した電流値を一旦すべて詰める
+            for (unsigned int idx = 0; idx < currents.size(); ++idx) {
+                currents[idx] = static_cast<uint16_t>(current_copy[idx * 2]) << 8 |
+                                    static_cast<uint16_t>(current_copy[idx * 2 + 1]);
+            }
+
+            uint16_t r_hand_current = static_cast<uint16_t>(current_copy[right_hand_aero_id * 2]) << 8 |
+                                        static_cast<uint16_t>(current_copy[right_hand_aero_id * 2 + 1]);
+            uint16_t l_hand_current = static_cast<uint16_t>(current_copy[left_hand_aero_id * 2]) << 8 |
+                                        static_cast<uint16_t>(current_copy[left_hand_aero_id * 2 + 1]);
+
+            currents[7] = r_hand_current * scale;
+            currents[22] = l_hand_current * scale;
+
+            // ハンド位置の送信暫定対応
+            currents[28] = pos_copy[right_hand_aero_id];
+            currents[29] = pos_copy[left_hand_aero_id];
+
+            tracer_->send_current(currents);
         }
-
-        uint16_t r_hand_current = static_cast<uint16_t>(current_copy[right_hand_aero_id * 2]) << 8 |
-                                    static_cast<uint16_t>(current_copy[right_hand_aero_id * 2 + 1]);
-        uint16_t l_hand_current = static_cast<uint16_t>(current_copy[left_hand_aero_id * 2]) << 8 |
-                                    static_cast<uint16_t>(current_copy[left_hand_aero_id * 2 + 1]);
-
-        currents[7] = r_hand_current * scale;
-        currents[22] = l_hand_current * scale;
-
-        // ハンド位置の送信暫定対応
-        currents[28] = pos_copy[right_hand_aero_id];
-        currents[29] = pos_copy[left_hand_aero_id];
-
-        tracer_->send_current(currents);
-
         rate.sleep();
     }
 }
