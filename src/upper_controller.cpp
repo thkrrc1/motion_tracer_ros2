@@ -149,15 +149,18 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["l_shoulder_y_joint"] = _tracer_data.position[11] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_elbow_joint"] = _tracer_data.position[12] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_y_joint"] = _tracer_data.position[13] / 10.0 * deg2Rad * -1.0;
+    // (旧機体仕様)
+    // joint_angles_["l_wrist_r_joint"] = _tracer_data.position[14] / 10.0 * deg2Rad * -1.0;
+    // joint_angles_["l_wrist_p_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad * -1.0;
+    // (新機体仕様)
     joint_angles_["l_wrist_r_joint"] = _tracer_data.position[14] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_p_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad * -1.0;
     // (試作2暫定対応)
-    // joint_angles_["l_thumb_joint"] = calcHandAngle(_tracer_data.position[16] / 10.0, 0.0);
+    joint_angles_["l_thumb_joint"] = calcHandAngle(_tracer_data.position[16] / 10.0, 0.0);
 
     // TRX対応
     // joint_angles_["r_thumb_joint"] = (_tracer_data.position[8] / 10.0 * deg2Rad + 1.0) * 1.0;
     // joint_angles_["l_thumb_joint"] = (_tracer_data.position[16] / 10.0 * deg2Rad + 0.8) * -1.0;
-    joint_angles_["l_thumb_joint"] = -((_tracer_data.position[16] / 10.0 + 45) / 90 * 1.81 - 0.87);
 
     sendJointAngles();
 }
@@ -232,7 +235,7 @@ void UpperController::sendJointAngles() {
         rhand_traj_pub_->publish(rhand_msg);
     }
     if (send_angle_l_hand) {
-        // lhand_traj_pub_->publish(lhand_msg);
+        lhand_traj_pub_->publish(lhand_msg);
     }
 
     // TRX
@@ -243,13 +246,13 @@ void UpperController::sendJointAngles() {
         //     graspControl("right","release");
         // }
     // }
-    if (send_angle_l_hand) {
-        if( joint_angles_["l_thumb_joint"] > 0.0 && l_hand_state == "open") {
-            graspControl("left","grasp");
-        } else if (joint_angles_["l_thumb_joint"] <= 0.0 && l_hand_state == "close") {
-            graspControl("left","release");
-        }
-    }
+    // if (send_angle_l_hand) {
+    //     if( joint_angles_["l_thumb_joint"] > 0.0 && l_hand_state == "open") {
+    //         graspControl("left","grasp");
+    //     } else if (joint_angles_["l_thumb_joint"] <= 0.0 && l_hand_state == "close") {
+    //         graspControl("left","release");
+    //     }
+    // }
 }
 
 void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
