@@ -110,11 +110,11 @@ private:
         std::atomic<bool> kinematics_ready = false;
 
         // Collision / filtering
-        double force_threshold = 2.0;
-        double torque_threshold = 0.05;
+        double force_threshold = 5.0;
+        double torque_threshold = 1.0;
         double force_deadband = 1.0;
-        double torque_deadband = 0.03;
-        double tau_deadband = 0.02;
+        double torque_deadband = 0.02;
+        double tau_deadband = 0.2;
         double lowpass_alpha = 0.35;
 
         // Current reflection
