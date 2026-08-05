@@ -85,6 +85,14 @@ private:
         Wrench6 filtered;
         std::atomic<bool> filter_initialized = false;
 
+        double payload_mass_kg = 0.85;
+        std::vector<double> payload_com_in_sensor = {0.0, 0.0, 0.05};
+        std::vector<double> gravity_vector_in_base = {0.0, 0.0, -9.80665};
+        double gravity_compensation_sign = 1.0;
+        Wrench6 gravity_reference_wrench;
+        std::atomic<bool> gravity_reference_valid = false;
+        std::atomic<bool> gravity_reference_pending = true;
+
         // Kinematics parameters/state
         std::string base_link;
         std::string tip_link;
@@ -119,6 +127,7 @@ private:
         rclcpp::Time last_current_publish_time;
 
         rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr wrench_pub;
+        rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr compensated_wrench_pub;
         rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr tau_pub;
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr tare_service;
     };
@@ -142,7 +151,9 @@ private:
         const std::vector<double> & default_sensor_xyz_in_tip, const std::vector<double> & default_sensor_rpy_in_tip,
         const std::vector<std::string> & default_active_joint_names,
         const std::vector<double> & default_current_signs, const std::vector<double> & default_current_gains,
-        const std::vector<int64_t> & default_arm_indices
+        const std::vector<int64_t> & default_arm_indices,
+        const std::vector<double> & default_payload_com_in_sensor, const std::vector<double> & default_gravity_vector_in_base,
+        const double & default_gravity_compensation_sign
     );
     bool validateArmConfiguration(const ArmContext & arm) const;
 
@@ -175,6 +186,10 @@ private:
     KDL::Frame makeSensorFrameFromParams(const ArmContext & arm) const;
     static KDL::Vector cross(const KDL::Vector & a, const KDL::Vector & b);
     bool computeTauFromWrench(ArmContext & arm, const Wrench6 & sensor_wrench, std::vector<double> & tau_out);
+    bool computeGravityWrenchInSensor(ArmContext & arm, Wrench6 & gravity_wrench);
+    bool compensatePayloadGravity(ArmContext & arm, const Wrench6 & measured, Wrench6 & compensated);
+    static Wrench6 subtractWrench(const Wrench6 & lhs, const Wrench6 & rhs);
+    static Wrench6 scaleWrench(const Wrench6 & wrench, double scale);
 
     // ---- Current mux ----
     aero_controller_msgs::msg::Current makeOutputFromBaseOrNeutral();

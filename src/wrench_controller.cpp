@@ -17,7 +17,8 @@ WrenchController::WrenchController() :
             "r_wrist_p_joint"
         },
         {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0}, {100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0},
-        {0, 1, 2, 3, 4, 5, 6}
+        {0, 1, 2, 3, 4, 5, 6},
+        {0.0, 0.0, 0.05}, {0.0, 0.0, -9.80665}, 1.0
     );
 
     configureArm(
@@ -34,7 +35,8 @@ WrenchController::WrenchController() :
             "l_wrist_p_joint"
         },
         {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0}, {100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0},
-        {15, 16, 17, 18, 19, 20, 21}
+        {15, 16, 17, 18, 19, 20, 21},
+        {0.0, 0.0, 0.05}, {0.0, 0.0, -9.80665}, 1.0
     );
 
     if (!validateArmConfiguration(right_arm_) || !validateArmConfiguration(left_arm_)) {
@@ -54,6 +56,8 @@ WrenchController::WrenchController() :
     if (publish_wrench_debug) {
         right_arm_.wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/right/filtered_wrench", sensor_qos);
         left_arm_.wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/left/filtered_wrench", sensor_qos);
+        right_arm_.compensated_wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/right/gravity_compensated_wrench", sensor_qos);
+        left_arm_.compensated_wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/left/gravity_compensated_wrench", sensor_qos);
     }
     if (publish_tau_debug) {
         right_arm_.tau_pub = create_publisher<sensor_msgs::msg::JointState>("/force_sensor/right/reflection_tau", sensor_qos);
@@ -97,7 +101,9 @@ void WrenchController::configureArm(
     const std::vector<double> & default_sensor_xyz_in_tip, const std::vector<double> & default_sensor_rpy_in_tip,
     const std::vector<std::string> & default_active_joint_names,
     const std::vector<double> & default_current_signs, const std::vector<double> & default_current_gains,
-    const std::vector<int64_t> & default_arm_indices) {
+    const std::vector<int64_t> & default_arm_indices,
+    const std::vector<double> & default_payload_com_in_sensor, const std::vector<double> & default_gravity_vector_in_base,
+    const double & default_gravity_compensation_sign) {
 
     arm.side = side;
     arm.joint_prefix = joint_prefix;
@@ -108,9 +114,12 @@ void WrenchController::configureArm(
     arm.sensor_xyz_in_tip = default_sensor_xyz_in_tip;
     arm.sensor_rpy_in_tip = default_sensor_rpy_in_tip;
     arm.active_joint_names = default_active_joint_names;
-    arm.arm_joint_indices = default_arm_indices;
     arm.current_signs = default_current_signs;
     arm.current_gains = default_current_gains;
+    arm.arm_joint_indices = default_arm_indices;
+    arm.payload_com_in_sensor = default_payload_com_in_sensor;
+    arm.gravity_vector_in_base = default_gravity_vector_in_base;
+    arm.gravity_compensation_sign = default_gravity_compensation_sign;
     arm.last_current_delta.assign(arm.active_joint_names.size(), 0.0);
     arm.tip_T_sensor = makeSensorFrameFromParams(arm);
 }
@@ -119,6 +128,15 @@ bool WrenchController::validateArmConfiguration(const ArmContext & arm) const {
 
     if (arm.sensor_xyz_in_tip.size() != 3 || arm.sensor_rpy_in_tip.size() != 3) {
         RCLCPP_ERROR(this->get_logger(), "%s sensor xyz/rpy parameters must each have three values.", arm.side.c_str());
+        return false;
+    }
+
+    if (arm.payload_com_in_sensor.size() != 3 || arm.gravity_vector_in_base.size() != 3) {
+        RCLCPP_ERROR(this->get_logger(), "%s payload COM and gravity vectors must each have three values.", arm.side.c_str());
+        return false;
+    }
+    if (arm.payload_mass_kg < 0.0) {
+        RCLCPP_ERROR(this->get_logger(), "%s payload_mass_kg must be non-negative.", arm.side.c_str());
         return false;
     }
 
@@ -181,6 +199,10 @@ void WrenchController::tareCallback(const std::shared_ptr<std_srvs::srv::Trigger
     left_arm_.tare_requested.store(true);
     right_arm_.filter_initialized.store(false);
     left_arm_.filter_initialized.store(false);
+    right_arm_.gravity_reference_valid.store(false);
+    left_arm_.gravity_reference_valid.store(false);
+    right_arm_.gravity_reference_pending.store(true);
+    left_arm_.gravity_reference_pending.store(true);
     res->success = true;
     res->message = "force sensor tare requested.";
 }
@@ -532,7 +554,7 @@ bool WrenchController::extractLatestFrame(ArmContext & arm, std::array<uint8_t, 
     size_t erase_until = 0;
 
     for (size_t i = 0; i + 1 < arm.continuous_rx_buffer.size(); ++i) {
-        if (arm.continuous_rx_buffer[i] != CR && arm.continuous_rx_buffer[i + 1] != LF) {
+        if (arm.continuous_rx_buffer[i] != CR || arm.continuous_rx_buffer[i + 1] != LF) {
             continue;
         }
         if (i >= WRENCH_PAYLOAD_DATA_LENGTH) {
@@ -827,6 +849,91 @@ KDL::Vector WrenchController::cross(const KDL::Vector & a, const KDL::Vector & b
       a.x() * b.y() - a.y() * b.x());
 }
 
+WrenchController::Wrench6 WrenchController::subtractWrench(const Wrench6 & lhs, const Wrench6 & rhs) {
+    return {
+        lhs.fx - rhs.fx, lhs.fy - rhs.fy, lhs.fz - rhs.fz,
+        lhs.mx - rhs.mx, lhs.my - rhs.my, lhs.mz - rhs.mz
+    };
+}
+
+WrenchController::Wrench6 WrenchController::scaleWrench(const Wrench6 & wrench, double scale) {
+    return {
+        wrench.fx * scale, wrench.fy * scale, wrench.fz * scale,
+        wrench.mx * scale, wrench.my * scale, wrench.mz * scale
+    };
+}
+
+bool WrenchController::computeGravityWrenchInSensor(ArmContext & arm, Wrench6 & gravity_wrench) {
+    if (arm.payload_mass_kg <= 0.0) {
+        gravity_wrench = Wrench6{};
+        return true;
+    }
+
+    std::vector<double> active_q;
+    if (!getActiveJointPositions(arm, active_q)) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(arm.kdl_mutex);
+    if (!arm.fk_solver || arm.kdl_active_mapping.empty()) {
+        return false;
+    }
+
+    KDL::JntArray q_raw(arm.kdl_active_mapping.size());
+    for (size_t i = 0; i < arm.kdl_active_mapping.size(); ++i) {
+        const auto & map = arm.kdl_active_mapping[i];
+        if (map.active_index < 0 || static_cast<size_t>(map.active_index) >= active_q.size()) {
+            return false;
+        }
+        q_raw(i) = map.multiplier * active_q[static_cast<size_t>(map.active_index)] + map.offset;
+    }
+
+    KDL::Frame base_T_tip;
+    if (arm.fk_solver->JntToCart(q_raw, base_T_tip) < 0) {
+        return false;
+    }
+
+    const KDL::Rotation base_R_sensor = base_T_tip.M * arm.tip_T_sensor.M;
+    const KDL::Vector gravity_base(arm.gravity_vector_in_base[0], arm.gravity_vector_in_base[1], arm.gravity_vector_in_base[2]);
+    const KDL::Vector payload_force_base = gravity_base * arm.payload_mass_kg;
+    const KDL::Vector payload_force_sensor = base_R_sensor.Inverse() * payload_force_base;
+    const KDL::Vector com_sensor(arm.payload_com_in_sensor[0], arm.payload_com_in_sensor[1], arm.payload_com_in_sensor[2]);
+    const KDL::Vector payload_moment_sensor = cross(com_sensor, payload_force_sensor);
+
+    gravity_wrench = {
+        payload_force_sensor.x(), payload_force_sensor.y(), payload_force_sensor.z(),
+        payload_moment_sensor.x(), payload_moment_sensor.y(), payload_moment_sensor.z()
+    };
+    return true;
+}
+
+bool WrenchController::compensatePayloadGravity(
+    ArmContext & arm, const Wrench6 & measured, Wrench6 & compensated) {
+    if (arm.payload_mass_kg <= 0.0) {
+        compensated = measured;
+        return true;
+    }
+
+    Wrench6 current_gravity;
+    if (!computeGravityWrenchInSensor(arm, current_gravity)) {
+        return false;
+    }
+
+    if (arm.gravity_reference_pending.exchange(false) || !arm.gravity_reference_valid.load()) {
+        arm.gravity_reference_wrench = current_gravity;
+        arm.gravity_reference_valid.store(true);
+        compensated = measured;
+        RCLCPP_INFO(this->get_logger(), "%s gravity reference captured: F=[%.3f %.3f %.3f] M=[%.3f %.3f %.3f]",
+            arm.side.c_str(), current_gravity.fx, current_gravity.fy, current_gravity.fz,
+            current_gravity.mx, current_gravity.my, current_gravity.mz);
+        return true;
+    }
+
+    const Wrench6 gravity_change = subtractWrench(current_gravity, arm.gravity_reference_wrench);
+    compensated = subtractWrench(measured, scaleWrench(gravity_change, arm.gravity_compensation_sign));
+    return true;
+}
+
 bool WrenchController::computeTauFromWrench(ArmContext & arm, const Wrench6 & sensor_wrench, std::vector<double> & tau_out) {
     std::vector<double> active_q;
     if (!getActiveJointPositions(arm, active_q)) {
@@ -970,11 +1077,29 @@ bool WrenchController::processArmSample(ArmContext & arm, std::vector<double> & 
         arm.filtered.mz = a * raw.mz + (1.0 - a) * arm.filtered.mz;
     }
 
+    Wrench6 compensated;
+    if (!compensatePayloadGravity(arm, arm.filtered, compensated)) {
+        return false;
+    }
+
     if (publish_wrench_debug && arm.wrench_pub) {
         publishWrenchDebug(arm, arm.filtered, arm.sensor_frame_id);
     }
 
-    Wrench6 gated = arm.filtered;
+    if (publish_wrench_debug && arm.compensated_wrench_pub) {
+        geometry_msgs::msg::WrenchStamped msg;
+        msg.header.stamp = now();
+        msg.header.frame_id = arm.sensor_frame_id;
+        msg.wrench.force.x = compensated.fx;
+        msg.wrench.force.y = compensated.fy;
+        msg.wrench.force.z = compensated.fz;
+        msg.wrench.torque.x = compensated.mx;
+        msg.wrench.torque.y = compensated.my;
+        msg.wrench.torque.z = compensated.mz;
+        arm.compensated_wrench_pub->publish(msg);
+    }
+
+    Wrench6 gated = compensated;
     gated.fx = applyDeadband(gated.fx, arm.force_deadband);
     gated.fy = applyDeadband(gated.fy, arm.force_deadband);
     gated.fz = applyDeadband(gated.fz, arm.force_deadband);
