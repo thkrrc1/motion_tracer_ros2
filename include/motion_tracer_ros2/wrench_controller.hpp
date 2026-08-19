@@ -85,9 +85,9 @@ private:
         Wrench6 filtered;
         std::atomic<bool> filter_initialized = false;
 
-        double payload_mass_kg = 0.85;
-        std::vector<double> payload_com_in_sensor = {0.0, 0.0, 0.05};
-        std::vector<double> gravity_vector_in_base = {0.0, 0.0, -9.80665};
+        double payload_mass_kg = 0.82 + 0.25; // hand unit[kg] + force sensor[kg]
+        std::vector<double> payload_com_in_sensor = {0.0, 0.0, 0.063}; // センサー座標系からみたハンドユニット重心ベクトル
+        std::vector<double> gravity_vector_in_base = {0.0, 0.0, -9.80665}; // ワールド座標系からみた重力ベクトル
         double gravity_compensation_sign = 1.0;
         Wrench6 gravity_reference_wrench;
         std::atomic<bool> gravity_reference_valid = false;
@@ -96,8 +96,8 @@ private:
         // Kinematics parameters/state
         std::string base_link;
         std::string tip_link;
-        std::vector<double> sensor_xyz_in_tip = {0.0, 0.0, 0.0};
-        std::vector<double> sensor_rpy_in_tip = {0.0, 0.0, 0.0};
+        std::vector<double> sensor_xyz_in_tip = {0.0, 0.0, 0.0}; // tip_link座標系からみたセンサー検出位置
+        std::vector<double> sensor_rpy_in_tip = {0.0, 0.0, 0.0}; // tip_link座標系からみたセンサー検出方向
         std::vector<std::string> active_joint_names;
         KDL::Frame tip_T_sensor;
 

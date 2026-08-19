@@ -6,7 +6,7 @@ WrenchController::WrenchController() :
     configureArm(
         right_arm_, "right", "r",
         "/dev/force_sensor_right", "r_arm_link", "r_hand_link",
-        {0.0, 0.0, -0.015}, {M_PI, 0.0, -M_PI / 2.0},
+        {0.0, 0.0, -0.011}, {M_PI, 0.0, -M_PI / 2.0},
         {
             "r_shoulder_p_joint",
             "r_shoulder_r_joint",
@@ -24,7 +24,7 @@ WrenchController::WrenchController() :
     configureArm(
         left_arm_, "left", "l",
         "/dev/force_sensor_left", "l_arm_link", "l_hand_link",
-        {0.0, 0.0, -0.015}, {M_PI, 0.0, -M_PI / 2.0},
+        {0.0, 0.0, -0.011}, {M_PI, 0.0, -M_PI / 2.0},
         {
             "l_shoulder_p_joint",
             "l_shoulder_r_joint",
