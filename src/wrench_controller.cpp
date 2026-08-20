@@ -63,6 +63,7 @@ WrenchController::WrenchController() :
         right_arm_.tau_pub = create_publisher<sensor_msgs::msg::JointState>("/force_sensor/right/reflection_tau", sensor_qos);
         left_arm_.tau_pub = create_publisher<sensor_msgs::msg::JointState>("/force_sensor/left/reflection_tau", sensor_qos);
     }
+    tof_raw_pub_ = this->create_publisher<sensor_msgs::msg::LaserScan>("/tof_sensor/scan_raw", sensor_qos);
 
     tare_srv_ = this->create_service<std_srvs::srv::Trigger>("/force_sensor/tare", std::bind(&WrenchController::tareCallback, this, std::placeholders::_1, std::placeholders::_2));
 
@@ -79,6 +80,7 @@ WrenchController::WrenchController() :
     publishNeutralCurrent();
     running_.store(true);
     wrench_thread_ = std::thread(&WrenchController::wrenchLoop, this);
+    tof_timer_ = this->create_wall_timer(std::chrono::milliseconds(10),std::bind(&WrenchController::publishToFLoop, this));
 }
 
 WrenchController::~WrenchController() {
@@ -1226,6 +1228,28 @@ void WrenchController::publishTauDebug(ArmContext & arm, const std::vector<doubl
     msg.name = names;
     msg.effort = tau;
     arm.tau_pub->publish(msg);
+}
+
+void WrenchController::publishToFLoop() {
+    std::vector<uint8_t> current_copy;
+    uint16_t r_tof_range = 0x1FFE;
+    uint16_t l_tof_range = 0x1FFE;
+    {
+        std::lock_guard<std::mutex> lock(current_raw_mutex);
+        r_tof_range = static_cast<uint16_t>(latest_current_raw.data[right_tof_id * 2]) << 8 |
+                        static_cast<uint16_t>(latest_current_raw.data[right_tof_id * 2 + 1]);
+        l_tof_range = static_cast<uint16_t>(latest_current_raw.data[left_tof_id * 2]) << 8 |
+                        static_cast<uint16_t>(latest_current_raw.data[left_tof_id * 2 + 1]);
+    }
+
+    sensor_msgs::msg::LaserScan msg;
+    msg.ranges.resize(2);
+    msg.header.stamp = now();
+    msg.range_min = tof_range_min;
+    msg.range_max = tof_range_max;
+    msg.ranges[0] = static_cast<float>(r_tof_range);
+    msg.ranges[1] = static_cast<float>(l_tof_range);
+    tof_raw_pub_->publish(msg);
 }
 
 void WrenchController::fillNeutral(aero_controller_msgs::msg::Current & msg) const {

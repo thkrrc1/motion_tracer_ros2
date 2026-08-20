@@ -27,6 +27,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -203,6 +204,7 @@ private:
     void publishMergedCurrent(const std::vector<double> * right_tau, bool right_has_reflection, const std::vector<double> * left_tau, bool left_has_reflection);
     void publishWrenchDebug(ArmContext & arm, const Wrench6 & wrench, const std::string & frame_id);
     void publishTauDebug(ArmContext & arm, const std::vector<double> & tau, const std::vector<std::string> & names);
+    void publishToFLoop();
     void mergeArmCurrent(aero_controller_msgs::msg::Current & msg, ArmContext & arm, const std::vector<double> & tau);
     void fillNeutral(aero_controller_msgs::msg::Current & msg) const;
     int convertCurrentValue(int current_val);
@@ -220,6 +222,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr on_force_feedback_sub_;
     rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr wrench_sensor_pub_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr tare_srv_;
+    rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr tof_raw_pub_;
+    rclcpp::TimerBase::SharedPtr tof_timer_;
 
     ArmContext right_arm_;
     ArmContext left_arm_;
@@ -252,6 +256,11 @@ private:
     std::unordered_map<std::string, double> latest_joint_position;
     rclcpp::Time latest_joint_stamp;
     std::atomic<bool> have_joint_state = false;
+
+    int right_tof_id = 13;
+    int left_tof_id = 27;
+    float tof_range_min = 20;
+    float tof_range_max = 1200;
 };
 
 #endif  // WRENCH_CONTROLLER_HPP_
