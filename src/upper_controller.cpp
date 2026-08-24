@@ -135,13 +135,8 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["r_shoulder_y_joint"] = _tracer_data.position[3] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_elbow_joint"] = _tracer_data.position[4] / 10.0 * deg2Rad;
     joint_angles_["r_wrist_y_joint"] = _tracer_data.position[5] / 10.0 * deg2Rad * -1.0;
-    // (旧機体仕様)
-    // joint_angles_["r_wrist_p_joint"] = _tracer_data.position[6] / 10.0 * deg2Rad * -1.0;
-    // joint_angles_["r_wrist_r_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad;
-    // (新機体仕様)
     joint_angles_["r_wrist_r_joint"] = _tracer_data.position[6] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_wrist_p_joint"] = _tracer_data.position[7] / 10.0 * deg2Rad * 1.0;
-    // (試作2暫定対応)
     joint_angles_["r_thumb_joint"] = calcHandAngle(_tracer_data.position[8] / 10.0, 0.0);
 
     joint_angles_["l_shoulder_p_joint"] = _tracer_data.position[9] / 10.0 * deg2Rad;
@@ -149,29 +144,15 @@ void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _t
     joint_angles_["l_shoulder_y_joint"] = _tracer_data.position[11] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_elbow_joint"] = _tracer_data.position[12] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_y_joint"] = _tracer_data.position[13] / 10.0 * deg2Rad * -1.0;
-    // (旧機体仕様)
-    // joint_angles_["l_wrist_r_joint"] = _tracer_data.position[14] / 10.0 * deg2Rad * -1.0;
-    // joint_angles_["l_wrist_p_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad * -1.0;
-    // (新機体仕様)
     joint_angles_["l_wrist_r_joint"] = _tracer_data.position[14] / 10.0 * deg2Rad * -1.0;
     joint_angles_["l_wrist_p_joint"] = _tracer_data.position[15] / 10.0 * deg2Rad * -1.0;
-    // (試作2暫定対応)
     joint_angles_["l_thumb_joint"] = calcHandAngle(_tracer_data.position[16] / 10.0, 0.0);
-
-    // TRX対応
-    // joint_angles_["r_thumb_joint"] = (_tracer_data.position[8] / 10.0 * deg2Rad + 1.0) * 1.0;
-    // joint_angles_["l_thumb_joint"] = (_tracer_data.position[16] / 10.0 * deg2Rad + 0.8) * -1.0;
 
     sendJointAngles();
 }
 
 double UpperController::calcHandAngle(double _position, double offset){
-    // // (試作1暫定対応)
-    // // (リーダー現在角度 - リーダー閉じきった際の角度) / リーダー全移動角度量 * フォロワー全移動量 + フォロワー閉じきった際の位置 + offset;
-    // return (_position + 11) / 56  * 0.15 - 0.06462 + offset;
-    // (試作2暫定対応)
-    // return (_position + 45) / 90 * 0.13387 - 0.04586 + offset;
-    // (試作2_剛性UP暫定対応)
+    // ([leader's current angle] - [the angle when the leader is fully closed]) / [the total angle of movement of the leader] * [the total angle of movement of the follower] + [the angle when the follower is fully closed] + offset;
     return (_position + 35) / 70 * 0.079345 - 0.028665 + offset;
 }
 
@@ -230,29 +211,12 @@ void UpperController::sendJointAngles() {
     }
     waist_traj_pub_->publish(waist_msg);
     head_traj_pub_->publish(head_msg);
-    // 新ハンド
     if (send_angle_r_hand) {
         rhand_traj_pub_->publish(rhand_msg);
     }
     if (send_angle_l_hand) {
         lhand_traj_pub_->publish(lhand_msg);
     }
-
-    // TRX
-    // if (send_angle_r_hand) {
-        // if (joint_angles_["r_thumb_joint"] < 0.0 && r_hand_state == "open") {
-        //     graspControl("right","grasp");
-        // } else if (joint_angles_["r_thumb_joint"] >= 0.0 && r_hand_state == "close") {
-        //     graspControl("right","release");
-        // }
-    // }
-    // if (send_angle_l_hand) {
-    //     if( joint_angles_["l_thumb_joint"] > 0.0 && l_hand_state == "open") {
-    //         graspControl("left","grasp");
-    //     } else if (joint_angles_["l_thumb_joint"] <= 0.0 && l_hand_state == "close") {
-    //         graspControl("left","release");
-    //     }
-    // }
 }
 
 void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {

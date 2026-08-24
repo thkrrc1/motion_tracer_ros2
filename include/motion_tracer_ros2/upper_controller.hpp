@@ -81,13 +81,10 @@ private:
     bool send_angle_l_hand = false;
     bool send_angle_l_arm = false;
 
-    //////////////////////////////
-    // GUI parameters
     std::string neck_movement_;
     int neck_offset_;
     bool neck_auto_;
     bool neck_reverse_;
-    //////////////////////////////
 };
 
 #endif

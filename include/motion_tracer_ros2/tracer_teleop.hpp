@@ -36,7 +36,6 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr joy_pub_;
     sensor_msgs::msg::Joy joy_;
 
-    // dummy cmd_vel
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
     geometry_msgs::msg::Twist cmd_vel_;
 
@@ -74,10 +73,7 @@ private:
     void notifyOnTracer();
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr on_tracer_pub_;
 
-    //////////////////////////////
-    // GUI parameters
     std::string initial_pose_;
-    //////////////////////////////
 };
 
 #endif

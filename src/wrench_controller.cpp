@@ -1009,7 +1009,7 @@ aero_controller_msgs::msg::Current WrenchController::makeOutputFromBaseOrNeutral
         return out;
     }
 
-    // ハンド電流値のみ生データ
+    // Only the hand current value is used as raw data.
     out.data[right_hand_aero_id * 2] = latest_current_raw.data[right_hand_aero_id * 2];
     out.data[right_hand_aero_id * 2 + 1] = latest_current_raw.data[right_hand_aero_id * 2 + 1];
     out.data[left_hand_aero_id * 2] = latest_current_raw.data[left_hand_aero_id * 2];
@@ -1202,7 +1202,7 @@ void WrenchController::mergeArmCurrent(aero_controller_msgs::msg::Current & msg,
         }
         arm.last_current_delta[axis] = limited_delta;
 
-        limited_delta = std::abs(limited_delta); //正方向の電流値として扱う暫定対策
+        limited_delta = std::abs(limited_delta); //treat as a current value in the positive direction.
         const int current_count = static_cast<int>(std::llround(limited_delta));
         const int protocol_current = convertCurrentValue(current_count);
         setCurrentWord(msg, tracer_index, clampCurrent(protocol_current));
@@ -1258,16 +1258,16 @@ void WrenchController::fillNeutral(aero_controller_msgs::msg::Current & msg) con
     }
 }
 
-// Dynamixel用電流値変換
+// the current value conversion function for dedicated protocol
 int WrenchController::convertCurrentValue(int current_val) {
-    // valを20で割り、-127～127に制限
+    // divide val by 20 to limit it to -127 to 127.
     int driver_current_val = current_val / 20;
     driver_current_val = std::clamp(driver_current_val, -127, 127);
-    // 符号付き8bit値として格納
+    // stored as a signed 8-bit value.
     const int8_t driver_current_val_hex = static_cast<int8_t>(driver_current_val);
-    // 同じビット列を符号なし8bit値として解釈
+    // interpret the same bit sequence as an unsigned 8-bit value.
     const uint8_t driver_current_val_hex_u = static_cast<uint8_t>(driver_current_val_hex);
-    // 変換後の値を50倍
+    // Multiply the converted value by 50.
     const int res = static_cast<int>(driver_current_val_hex_u) * 50;
     return res;
 }

@@ -66,7 +66,7 @@ void SerialCommunication::parseBuffer(const std::vector<uint8_t>&) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     while (raw_buffer_.size() >= 4) {
-    // ヘッダ検出
+    // Header detection
         if (raw_buffer_[0] == 0xDF && raw_buffer_[1] == 0xFD) {
             if (raw_buffer_.size() < 4) {
                 return;
@@ -83,7 +83,7 @@ void SerialCommunication::parseBuffer(const std::vector<uint8_t>&) {
 
             raw_buffer_.erase(raw_buffer_.begin(), raw_buffer_.begin() + len);
         } else {
-            // ゴミ除去
+            // Garbage removal
             raw_buffer_.erase(raw_buffer_.begin());
         }
     }
@@ -148,7 +148,7 @@ void TracerCommand::send_current(const std::vector<uint16_t>& currents) {
     uint8_t len = 64;
     packet.push_back(len);
 
-    // 電流値送信コマンド
+    // Current value transmission command
     uint8_t cmd = 0x01;
     packet.push_back(cmd);
 
@@ -176,7 +176,7 @@ void TracerCommand::send_current(const std::vector<uint16_t>& currents) {
     cs += 0xFF;
     packet.push_back(static_cast<uint8_t>(~cs));
 
-    // 送信
+    // write
     serial_com_.write(packet);
 }
 

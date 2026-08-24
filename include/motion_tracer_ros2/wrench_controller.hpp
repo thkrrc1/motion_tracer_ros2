@@ -72,7 +72,7 @@ private:
         std::string side;
         std::string joint_prefix;
 
-        // Sensor parameters/state
+        // Sensor parameters
         std::string device;
         std::string acquisition_mode = "continuous";
         std::string sensor_frame_id;
@@ -87,18 +87,18 @@ private:
         std::atomic<bool> filter_initialized = false;
 
         double payload_mass_kg = 0.82 + 0.25; // hand unit[kg] + force sensor[kg]
-        std::vector<double> payload_com_in_sensor = {0.0, 0.0, 0.063}; // センサー座標系からみたハンドユニット重心ベクトル
-        std::vector<double> gravity_vector_in_base = {0.0, 0.0, -9.80665}; // ワールド座標系からみた重力ベクトル
+        std::vector<double> payload_com_in_sensor = {0.0, 0.0, 0.063}; // the center of gravity vector of the hand unit as seen from the force sensor coordinate system
+        std::vector<double> gravity_vector_in_base = {0.0, 0.0, -9.80665}; // the gravity vector as seen from the world coordinate system
         double gravity_compensation_sign = 1.0;
         Wrench6 gravity_reference_wrench;
         std::atomic<bool> gravity_reference_valid = false;
         std::atomic<bool> gravity_reference_pending = true;
 
-        // Kinematics parameters/state
+        // Kinematics parameters
         std::string base_link;
         std::string tip_link;
-        std::vector<double> sensor_xyz_in_tip = {0.0, 0.0, 0.0}; // tip_link座標系からみたセンサー検出位置
-        std::vector<double> sensor_rpy_in_tip = {0.0, 0.0, 0.0}; // tip_link座標系からみたセンサー検出方向
+        std::vector<double> sensor_xyz_in_tip = {0.0, 0.0, 0.0}; // the position of the sensor detection point as seen from the tip_link coordinate system
+        std::vector<double> sensor_rpy_in_tip = {0.0, 0.0, 0.0}; // the direction of the sensor detection point as seen from the tip_link coordinate system
         std::vector<std::string> active_joint_names;
         KDL::Frame tip_T_sensor;
 
@@ -110,7 +110,7 @@ private:
         std::unique_ptr<KDL::ChainJntToJacSolver> jac_solver;
         std::atomic<bool> kinematics_ready = false;
 
-        // Collision / filtering
+        // Collision
         double force_threshold = 5.0;
         double torque_threshold = 1.0;
         double force_deadband = 1.0;
@@ -228,7 +228,7 @@ private:
     ArmContext right_arm_;
     ArmContext left_arm_;
 
-    /// Common parameters
+    // Common parameters
     size_t retry_calib_max_count = 3;
     double lbs_val = 8192.0;
     int frame_rx_buffer_max_bytes = 4096;
@@ -246,7 +246,7 @@ private:
     std::atomic<bool> running_ = false;
     std::atomic<bool> on_force_feedback_ = true;
 
-    // ---- current raw state ----
+    // ---- Current Raw state ----
     std::mutex current_raw_mutex;
     aero_controller_msgs::msg::Current latest_current_raw;
     rclcpp::Time latest_current_raw_stamp;
