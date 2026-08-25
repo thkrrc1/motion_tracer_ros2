@@ -88,17 +88,31 @@ private:
 
         double payload_mass_kg = 0.82 + 0.25; // hand unit[kg] + force sensor[kg]
         std::vector<double> payload_com_in_sensor = {0.0, 0.0, 0.063}; // the center of gravity vector of the hand unit as seen from the force sensor coordinate system
-        std::vector<double> gravity_vector_in_base = {0.0, 0.0, -9.80665}; // the gravity vector as seen from the world coordinate system
+        std::vector<double> payload_inertia_diag_in_sensor = {0.0, 0.0, 0.0}; // the payload rotational inertia of the center of gravityas seen from the force sensor coordinate system
+        std::vector<double> gravity_vector_in_base = {0.0, 0.0, -9.80665};
         double gravity_compensation_sign = 1.0;
-        Wrench6 gravity_reference_wrench;
-        std::atomic<bool> gravity_reference_valid = false;
-        std::atomic<bool> gravity_reference_pending = true;
+        Wrench6 payload_reference_wrench;
+        std::atomic<bool> payload_reference_valid = false;
+        std::atomic<bool> payload_reference_pending = true;
+
+        Wrench6 filtered_payload_model;
+        bool payload_model_filter_initialized = false;
+        std::atomic<bool> dynamics_state_reset_requested = true;
+        bool motion_state_initialized = false;
+        rclcpp::Time motion_prev_stamp;
+        KDL::Vector prev_com_position_base = KDL::Vector(0.0, 0.0, 0.0);
+        KDL::Vector prev_com_velocity_base = KDL::Vector(0.0, 0.0, 0.0);
+        KDL::Vector prev_angular_velocity_base = KDL::Vector(0.0, 0.0, 0.0);
+        double dynamics_min_dt = 0.005;
+        double dynamics_max_dt = 0.050;
+        double max_linear_acceleration = 12.0;
+        double max_angular_acceleration = 30.0;
 
         // Kinematics parameters
         std::string base_link;
         std::string tip_link;
         std::vector<double> sensor_xyz_in_tip = {0.0, 0.0, 0.0}; // the position of the sensor detection point as seen from the tip_link coordinate system
-        std::vector<double> sensor_rpy_in_tip = {0.0, 0.0, 0.0}; // the direction of the sensor detection point as seen from the tip_link coordinate system
+        std::vector<double> sensor_rpy_in_tip = {0.0, 0.0, 0.0}; // the rotation of the sensor detection point as seen from the tip_link coordinate system
         std::vector<std::string> active_joint_names;
         KDL::Frame tip_T_sensor;
 
@@ -108,15 +122,24 @@ private:
         std::vector<KdlActiveJointMapping> kdl_active_mapping;
         std::unique_ptr<KDL::ChainFkSolverPos_recursive> fk_solver;
         std::unique_ptr<KDL::ChainJntToJacSolver> jac_solver;
+
+        std::string dynamics_base_link = "waist_link";
+        std::vector<std::string> dynamics_active_joint_names;
+        KDL::Chain dynamics_chain;
+        std::vector<std::string> dynamics_raw_kdl_joint_names;
+        std::vector<KdlActiveJointMapping> dynamics_kdl_active_mapping;
+        std::unique_ptr<KDL::ChainFkSolverPos_recursive> dynamics_fk_solver;
+        std::unique_ptr<KDL::ChainJntToJacSolver> dynamics_jac_solver;
+
         std::atomic<bool> kinematics_ready = false;
 
         // Collision
         double force_threshold = 5.0;
         double torque_threshold = 1.0;
-        double force_deadband = 1.0;
-        double torque_deadband = 0.02;
-        double tau_deadband = 0.2;
-        double lowpass_alpha = 0.35;
+        double force_deadband = 0.3;
+        double torque_deadband = 0.05;
+        double tau_deadband = 0.1;
+        double lowpass_alpha = 0.25;
 
         // Current reflection
         std::vector<int64_t> arm_joint_indices;
@@ -128,7 +151,7 @@ private:
         rclcpp::Time last_current_publish_time;
 
         rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr wrench_pub;
-        rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr compensated_wrench_pub;
+        rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr dynamics_compensated_wrench_pub;
         rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr tau_pub;
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr tare_service;
     };
@@ -182,15 +205,20 @@ private:
 
     bool buildKinematicsFromUrdfForArm(ArmContext & arm, const std::string & robot_description);
     bool buildDefaultNoidArmJointMapping(const ArmContext & arm, const std::vector<std::string> & raw_kdl_joint_names, std::vector<KdlActiveJointMapping> & mapping);
+    bool buildDefaultNoidDynamicsJointMapping(const ArmContext & arm, const std::vector<std::string> & raw_kdl_joint_names, std::vector<KdlActiveJointMapping> & mapping);
     bool getActiveJointPositions(const ArmContext & arm, std::vector<double> & active_q);
+    bool getActiveJointState(const ArmContext & arm, std::vector<double> & active_q, std::vector<double> & active_qdot, rclcpp::Time & stamp, bool & velocity_available);
+    bool getDynamicsJointState(const ArmContext & arm, std::vector<double> & dynamics_q, std::vector<double> & dynamics_qdot, rclcpp::Time & stamp, bool & velocity_available);
     int findActiveJointIndex(const ArmContext & arm, const std::string & name);
     KDL::Frame makeSensorFrameFromParams(const ArmContext & arm) const;
     static KDL::Vector cross(const KDL::Vector & a, const KDL::Vector & b);
     bool computeTauFromWrench(ArmContext & arm, const Wrench6 & sensor_wrench, std::vector<double> & tau_out);
-    bool computeGravityWrenchInSensor(ArmContext & arm, Wrench6 & gravity_wrench);
-    bool compensatePayloadGravity(ArmContext & arm, const Wrench6 & measured, Wrench6 & compensated);
+    bool computePayloadModelWrenchInSensor(ArmContext & arm, Wrench6 & payload_wrench);
+    bool compensatePayloadDynamics(ArmContext & arm, const Wrench6 & measured, Wrench6 & compensated);
     static Wrench6 subtractWrench(const Wrench6 & lhs, const Wrench6 & rhs);
+    static Wrench6 addWrench(const Wrench6 & lhs, const Wrench6 & rhs);
     static Wrench6 scaleWrench(const Wrench6 & wrench, double scale);
+    static KDL::Vector clampVectorNorm(const KDL::Vector & value, double max_norm);
 
     // ---- Current mux ----
     aero_controller_msgs::msg::Current makeOutputFromBaseOrNeutral();
@@ -254,6 +282,7 @@ private:
 
     std::mutex joint_mutex;
     std::unordered_map<std::string, double> latest_joint_position;
+    std::unordered_map<std::string, double> latest_joint_velocity;
     rclcpp::Time latest_joint_stamp;
     std::atomic<bool> have_joint_state = false;
 

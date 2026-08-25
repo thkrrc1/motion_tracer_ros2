@@ -56,8 +56,8 @@ WrenchController::WrenchController() :
     if (publish_wrench_debug) {
         right_arm_.wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/right/filtered_wrench", sensor_qos);
         left_arm_.wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/left/filtered_wrench", sensor_qos);
-        right_arm_.compensated_wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/right/gravity_compensated_wrench", sensor_qos);
-        left_arm_.compensated_wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/left/gravity_compensated_wrench", sensor_qos);
+        right_arm_.dynamics_compensated_wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/right/dynamics_compensated_wrench", sensor_qos);
+        left_arm_.dynamics_compensated_wrench_pub = create_publisher<geometry_msgs::msg::WrenchStamped>("/force_sensor/left/dynamics_compensated_wrench", sensor_qos);
     }
     if (publish_tau_debug) {
         right_arm_.tau_pub = create_publisher<sensor_msgs::msg::JointState>("/force_sensor/right/reflection_tau", sensor_qos);
@@ -116,6 +116,12 @@ void WrenchController::configureArm(
     arm.sensor_xyz_in_tip = default_sensor_xyz_in_tip;
     arm.sensor_rpy_in_tip = default_sensor_rpy_in_tip;
     arm.active_joint_names = default_active_joint_names;
+    arm.dynamics_active_joint_names = {
+        "waist_y_joint",
+        "waist_p_joint",
+        "waist_r_joint"
+    };
+    arm.dynamics_active_joint_names.insert(arm.dynamics_active_joint_names.end(), arm.active_joint_names.begin(), arm.active_joint_names.end());
     arm.current_signs = default_current_signs;
     arm.current_gains = default_current_gains;
     arm.arm_joint_indices = default_arm_indices;
@@ -133,8 +139,8 @@ bool WrenchController::validateArmConfiguration(const ArmContext & arm) const {
         return false;
     }
 
-    if (arm.payload_com_in_sensor.size() != 3 || arm.gravity_vector_in_base.size() != 3) {
-        RCLCPP_ERROR(this->get_logger(), "%s payload COM and gravity vectors must each have three values.", arm.side.c_str());
+    if (arm.payload_com_in_sensor.size() != 3 || arm.payload_inertia_diag_in_sensor.size() != 3 || arm.gravity_vector_in_base.size() != 3) {
+        RCLCPP_ERROR(this->get_logger(), "%s payload COM, inertia diagonal, and gravity vectors must each have three values.", arm.side.c_str());
         return false;
     }
     if (arm.payload_mass_kg < 0.0) {
@@ -143,6 +149,10 @@ bool WrenchController::validateArmConfiguration(const ArmContext & arm) const {
     }
 
     const size_t n = arm.active_joint_names.size();
+    if (arm.dynamics_base_link.empty() || arm.dynamics_active_joint_names.size() != n + 3) {
+        RCLCPP_ERROR(this->get_logger(), "%s dynamics chain must contain waist_y/p/r plus seven arm joints.", arm.side.c_str());
+        return false;
+    }
     if (n != 7 || arm.arm_joint_indices.size() != n || arm.current_signs.size() != n || arm.current_gains.size() != n) {
         RCLCPP_ERROR(this->get_logger(), "%s arm parameter sizes must all be seven: active=%zu indices=%zu signs=%zu gains=%zu", arm.side.c_str(), n, arm.arm_joint_indices.size(), arm.current_signs.size(), arm.current_gains.size());
         return false;
@@ -185,6 +195,11 @@ void WrenchController::jointStateCallback(const sensor_msgs::msg::JointState::Sh
     for (size_t i = 0; i < n; ++i) {
         latest_joint_position[msg->name[i]] = msg->position[i];
     }
+    latest_joint_velocity.clear();
+    const size_t nv = std::min(msg->name.size(), msg->velocity.size());
+    for (size_t i = 0; i < nv; ++i) {
+        latest_joint_velocity[msg->name[i]] = msg->velocity[i];
+    }
     latest_joint_stamp = msg->header.stamp;
     if (latest_joint_stamp.nanoseconds() == 0) {
         latest_joint_stamp = now();
@@ -201,10 +216,12 @@ void WrenchController::tareCallback(const std::shared_ptr<std_srvs::srv::Trigger
     left_arm_.tare_requested.store(true);
     right_arm_.filter_initialized.store(false);
     left_arm_.filter_initialized.store(false);
-    right_arm_.gravity_reference_valid.store(false);
-    left_arm_.gravity_reference_valid.store(false);
-    right_arm_.gravity_reference_pending.store(true);
-    left_arm_.gravity_reference_pending.store(true);
+    right_arm_.payload_reference_valid.store(false);
+    left_arm_.payload_reference_valid.store(false);
+    right_arm_.payload_reference_pending.store(true);
+    left_arm_.payload_reference_pending.store(true);
+    right_arm_.dynamics_state_reset_requested.store(true);
+    left_arm_.dynamics_state_reset_requested.store(true);
     res->success = true;
     res->message = "force sensor tare requested.";
 }
@@ -737,7 +754,55 @@ bool WrenchController::buildDefaultNoidArmJointMapping(const ArmContext & arm, c
 
     if (!missing.empty()) {
         RCLCPP_ERROR(this->get_logger(), "KDL chain does not contain active right-arm joints=[%s]. Check base_link='%s' and tip_link='%s'. raw_kdl=[%s]",
-        joinStrings(missing).c_str(), arm.base_link.c_str(), arm.tip_link.c_str(), joinStrings(raw_kdl_joint_names).c_str());
+            joinStrings(missing).c_str(), arm.base_link.c_str(), arm.tip_link.c_str(), joinStrings(raw_kdl_joint_names).c_str());
+        return false;
+    }
+    return true;
+}
+
+bool WrenchController::buildDefaultNoidDynamicsJointMapping(const ArmContext & arm, const std::vector<std::string> & raw_kdl_joint_names, std::vector<KdlActiveJointMapping> & mapping) {
+    mapping.clear();
+    mapping.reserve(raw_kdl_joint_names.size());
+    std::vector<bool> active_used(arm.dynamics_active_joint_names.size(), false);
+
+    const std::string elbow = arm.joint_prefix + "_elbow_joint";
+    for (const auto & raw_name : raw_kdl_joint_names) {
+        std::string active_name = raw_name;
+        double multiplier = 1.0;
+
+        // Preserve exactly the same elbow mimic mapping used by the existing arm-only chain.
+        if (raw_name == arm.joint_prefix + "_elbow_joint_mimic") {
+            active_name = elbow;
+            multiplier = -1.0;
+        } else if (raw_name == arm.joint_prefix + "_elbow_middle_joint") {
+            active_name = elbow;
+            multiplier = 0.591222;
+        } else if (raw_name == arm.joint_prefix + "_elbow_middle_joint_mimic") {
+            active_name = elbow;
+            multiplier = 0.408778;
+        }
+
+        const auto it = std::find(arm.dynamics_active_joint_names.begin(), arm.dynamics_active_joint_names.end(), active_name);
+        if (it == arm.dynamics_active_joint_names.end()) {
+            RCLCPP_ERROR(this->get_logger(), "%s dynamics KDL joint '%s' maps to '%s', but it is not in dynamics joints=[%s].",
+                arm.side.c_str(), raw_name.c_str(), active_name.c_str(), joinStrings(arm.dynamics_active_joint_names).c_str());
+            return false;
+        }
+
+        const int active_index = static_cast<int>(std::distance(arm.dynamics_active_joint_names.begin(), it));
+        active_used[static_cast<size_t>(active_index)] = true;
+        mapping.push_back({raw_name, active_name, active_index, multiplier, 0.0});
+    }
+
+    std::vector<std::string> missing;
+    for (size_t i = 0; i < active_used.size(); ++i) {
+        if (!active_used[i]) {
+            missing.push_back(arm.dynamics_active_joint_names[i]);
+        }
+    }
+    if (!missing.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "%s dynamics KDL chain base='%s' tip='%s' misses joints=[%s]. raw_kdl=[%s]",
+            arm.side.c_str(), arm.dynamics_base_link.c_str(), arm.tip_link.c_str(), joinStrings(missing).c_str(), joinStrings(raw_kdl_joint_names).c_str());
         return false;
     }
     return true;
@@ -750,58 +815,97 @@ bool WrenchController::buildKinematicsFromUrdfForArm(ArmContext & arm, const std
         return false;
     }
 
-    KDL::Chain chain;
-    if (!tree.getChain(arm.base_link, arm.tip_link, chain)) {
-        RCLCPP_ERROR(this->get_logger(), "Failed to get KDL chain from base='%s' to tip='%s'. Set base_link/tip_link correctly.", arm.base_link.c_str(), arm.tip_link.c_str());
+    KDL::Chain arm_chain;
+    if (!tree.getChain(arm.base_link, arm.tip_link, arm_chain)) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to get arm KDL chain from base='%s' to tip='%s'.", arm.base_link.c_str(), arm.tip_link.c_str());
         return false;
     }
 
-    std::vector<std::string> raw_kdl_joint_names;
-    for (unsigned int i = 0; i < chain.getNrOfSegments(); ++i) {
-        const auto & joint = chain.getSegment(i).getJoint();
+    std::vector<std::string> raw_arm_joint_names;
+    for (unsigned int i = 0; i < arm_chain.getNrOfSegments(); ++i) {
+        const auto & joint = arm_chain.getSegment(i).getJoint();
         if (joint.getType() != KDL::Joint::None) {
-            raw_kdl_joint_names.push_back(joint.getName());
+            raw_arm_joint_names.push_back(joint.getName());
         }
     }
 
-    std::vector<KdlActiveJointMapping> mapping;
-    if (!buildDefaultNoidArmJointMapping(arm, raw_kdl_joint_names, mapping)) {
+    std::vector<KdlActiveJointMapping> arm_mapping;
+    if (!buildDefaultNoidArmJointMapping(arm, raw_arm_joint_names, arm_mapping)) {
         return false;
     }
-    if (mapping.size() != raw_kdl_joint_names.size() || mapping.size() != chain.getNrOfJoints()) {
-        RCLCPP_ERROR(this->get_logger(), "%s: KDL joint/mapping size mismatch.", arm.side.c_str());
+    if (arm_mapping.size() != raw_arm_joint_names.size() ||
+        arm_mapping.size() != arm_chain.getNrOfJoints()) {
+        RCLCPP_ERROR(this->get_logger(), "%s: arm KDL joint/mapping size mismatch.", arm.side.c_str());
+        return false;
+    }
+
+    KDL::Chain dynamics_chain;
+    if (!tree.getChain(arm.dynamics_base_link, arm.tip_link, dynamics_chain)) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to get dynamics KDL chain from base='%s' to tip='%s'.", arm.dynamics_base_link.c_str(), arm.tip_link.c_str());
+        return false;
+    }
+
+    std::vector<std::string> raw_dynamics_joint_names;
+    for (unsigned int i = 0; i < dynamics_chain.getNrOfSegments(); ++i) {
+        const auto & joint = dynamics_chain.getSegment(i).getJoint();
+        if (joint.getType() != KDL::Joint::None) {
+            raw_dynamics_joint_names.push_back(joint.getName());
+        }
+    }
+
+    std::vector<KdlActiveJointMapping> dynamics_mapping;
+    if (!buildDefaultNoidDynamicsJointMapping(
+            arm, raw_dynamics_joint_names, dynamics_mapping)) {
+        return false;
+    }
+    if (dynamics_mapping.size() != raw_dynamics_joint_names.size() ||
+        dynamics_mapping.size() != dynamics_chain.getNrOfJoints()) {
+        RCLCPP_ERROR(this->get_logger(), "%s: dynamics KDL joint/mapping size mismatch.", arm.side.c_str());
         return false;
     }
 
     {
         std::lock_guard<std::mutex> lock(arm.kdl_mutex);
-        arm.chain = chain;
-        arm.raw_kdl_joint_names = raw_kdl_joint_names;
-        arm.kdl_active_mapping = mapping;
+
+        arm.chain = arm_chain;
+        arm.raw_kdl_joint_names = raw_arm_joint_names;
+        arm.kdl_active_mapping = arm_mapping;
         arm.fk_solver = std::make_unique<KDL::ChainFkSolverPos_recursive>(arm.chain);
         arm.jac_solver = std::make_unique<KDL::ChainJntToJacSolver>(arm.chain);
+
+        arm.dynamics_chain = dynamics_chain;
+        arm.dynamics_raw_kdl_joint_names = raw_dynamics_joint_names;
+        arm.dynamics_kdl_active_mapping = dynamics_mapping;
+        arm.dynamics_fk_solver = std::make_unique<KDL::ChainFkSolverPos_recursive>(arm.dynamics_chain);
+        arm.dynamics_jac_solver = std::make_unique<KDL::ChainJntToJacSolver>(arm.dynamics_chain);
     }
     arm.kinematics_ready.store(true);
+    arm.dynamics_state_reset_requested.store(true);
 
-    std::vector<std::string> map_strings;
-    for (const auto & m : mapping) {
+    std::vector<std::string> arm_map_strings;
+    for (const auto & m : arm_mapping) {
         std::ostringstream ss;
         ss << m.kdl_joint_name << "->" << m.active_joint_name << "*" << m.multiplier;
         if (std::abs(m.offset) > 1e-12) {
             ss << "+" << m.offset;
         }
-        map_strings.push_back(ss.str());
-    }
-    std::ostringstream oss;
-    for (size_t i = 0; i < map_strings.size(); ++i) {
-        if (i > 0) {
-        oss << ", ";
-        }
-        oss << map_strings[i];
+        arm_map_strings.push_back(ss.str());
     }
 
-    RCLCPP_INFO(this->get_logger(), "KDL chain ready: base=%s tip=%s", arm.base_link.c_str(), arm.tip_link.c_str());
-    RCLCPP_INFO(this->get_logger(), "KDL-to-active mapping=[%s]", oss.str().c_str());
+    std::vector<std::string> dynamics_map_strings;
+    for (const auto & m : dynamics_mapping) {
+        std::ostringstream ss;
+        ss << m.kdl_joint_name << "->" << m.active_joint_name << "*" << m.multiplier;
+        if (std::abs(m.offset) > 1e-12) {
+            ss << "+" << m.offset;
+        }
+        dynamics_map_strings.push_back(ss.str());
+    }
+
+    RCLCPP_INFO(this->get_logger(), "%s arm reflection chain ready: base=%s tip=%s mapping=[%s]",
+        arm.side.c_str(), arm.base_link.c_str(), arm.tip_link.c_str(), joinStrings(arm_map_strings).c_str());
+    RCLCPP_INFO(this->get_logger(), "%s payload dynamics chain ready: base=%s tip=%s mapping=[%s]",
+        arm.side.c_str(), arm.dynamics_base_link.c_str(), arm.tip_link.c_str(), joinStrings(dynamics_map_strings).c_str());
     return true;
 }
 
@@ -823,6 +927,74 @@ bool WrenchController::getActiveJointPositions(const ArmContext & arm, std::vect
         }
         active_q[i] = it->second;
     }
+    return true;
+}
+
+bool WrenchController::getActiveJointState(const ArmContext & arm, std::vector<double> & active_q, std::vector<double> & active_qdot, rclcpp::Time & stamp, bool & velocity_available) {
+    if (!arm.kinematics_ready.load() || !have_joint_state.load()) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(joint_mutex);
+    if ((now() - latest_joint_stamp).seconds() > 0.1) {
+        return false;
+    }
+
+    active_q.assign(arm.active_joint_names.size(), 0.0);
+    active_qdot.assign(arm.active_joint_names.size(), 0.0);
+    velocity_available = true;
+
+    for (size_t i = 0; i < arm.active_joint_names.size(); ++i) {
+        const auto pos_it = latest_joint_position.find(arm.active_joint_names[i]);
+        if (pos_it == latest_joint_position.end()) {
+            return false;
+        }
+        active_q[i] = pos_it->second;
+
+        const auto vel_it = latest_joint_velocity.find(arm.active_joint_names[i]);
+        if (vel_it == latest_joint_velocity.end() || !std::isfinite(vel_it->second)) {
+            velocity_available = false;
+        } else {
+            active_qdot[i] = vel_it->second;
+        }
+    }
+    stamp = latest_joint_stamp;
+    return true;
+}
+
+
+bool WrenchController::getDynamicsJointState(const ArmContext & arm, std::vector<double> & dynamics_q, std::vector<double> & dynamics_qdot, rclcpp::Time & stamp, bool & velocity_available) {
+    if (!arm.kinematics_ready.load() || !have_joint_state.load()) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(joint_mutex);
+    if ((now() - latest_joint_stamp).seconds() > 0.1) {
+        return false;
+    }
+
+    dynamics_q.assign(arm.dynamics_active_joint_names.size(), 0.0);
+    dynamics_qdot.assign(arm.dynamics_active_joint_names.size(), 0.0);
+    velocity_available = true;
+
+    for (size_t i = 0; i < arm.dynamics_active_joint_names.size(); ++i) {
+        const std::string & name = arm.dynamics_active_joint_names[i];
+        const auto pos_it = latest_joint_position.find(name);
+        if (pos_it == latest_joint_position.end()) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "%s payload dynamics waiting for /joint_states position '%s'.", arm.side.c_str(), name.c_str());
+            return false;
+        }
+        dynamics_q[i] = pos_it->second;
+
+        const auto vel_it = latest_joint_velocity.find(name);
+        if (vel_it == latest_joint_velocity.end() || !std::isfinite(vel_it->second)) {
+            velocity_available = false;
+        } else {
+            dynamics_qdot[i] = vel_it->second;
+        }
+    }
+
+    stamp = latest_joint_stamp;
     return true;
 }
 
@@ -858,6 +1030,13 @@ WrenchController::Wrench6 WrenchController::subtractWrench(const Wrench6 & lhs, 
     };
 }
 
+WrenchController::Wrench6 WrenchController::addWrench(const Wrench6 & lhs, const Wrench6 & rhs) {
+    return {
+        lhs.fx + rhs.fx, lhs.fy + rhs.fy, lhs.fz + rhs.fz,
+        lhs.mx + rhs.mx, lhs.my + rhs.my, lhs.mz + rhs.mz
+    };
+}
+
 WrenchController::Wrench6 WrenchController::scaleWrench(const Wrench6 & wrench, double scale) {
     return {
         wrench.fx * scale, wrench.fy * scale, wrench.fz * scale,
@@ -865,74 +1044,194 @@ WrenchController::Wrench6 WrenchController::scaleWrench(const Wrench6 & wrench, 
     };
 }
 
-bool WrenchController::computeGravityWrenchInSensor(ArmContext & arm, Wrench6 & gravity_wrench) {
+KDL::Vector WrenchController::clampVectorNorm(const KDL::Vector & value, double max_norm) {
+    if (max_norm <= 0.0) {
+        return value;
+    }
+    const double n = value.Norm();
+    if (!std::isfinite(n) || n <= max_norm || n <= 1e-12) {
+        return value;
+    }
+    return value * (max_norm / n);
+}
+
+bool WrenchController::computePayloadModelWrenchInSensor(ArmContext & arm, Wrench6 & payload_wrench) {
     if (arm.payload_mass_kg <= 0.0) {
-        gravity_wrench = Wrench6{};
+        payload_wrench = Wrench6{};
         return true;
     }
 
-    std::vector<double> active_q;
-    if (!getActiveJointPositions(arm, active_q)) {
+    std::vector<double> dynamics_q;
+    std::vector<double> dynamics_qdot;
+    rclcpp::Time joint_stamp;
+    bool velocity_available = false;
+    if (!getDynamicsJointState(arm, dynamics_q, dynamics_qdot, joint_stamp, velocity_available)) {
         return false;
     }
 
     std::lock_guard<std::mutex> lock(arm.kdl_mutex);
-    if (!arm.fk_solver || arm.kdl_active_mapping.empty()) {
+    if (!arm.dynamics_fk_solver || arm.dynamics_kdl_active_mapping.empty()) {
         return false;
     }
 
-    KDL::JntArray q_raw(arm.kdl_active_mapping.size());
-    for (size_t i = 0; i < arm.kdl_active_mapping.size(); ++i) {
-        const auto & map = arm.kdl_active_mapping[i];
-        if (map.active_index < 0 || static_cast<size_t>(map.active_index) >= active_q.size()) {
+    KDL::JntArray q_raw(arm.dynamics_kdl_active_mapping.size());
+    KDL::JntArray qdot_raw(arm.dynamics_kdl_active_mapping.size());
+    for (size_t i = 0; i < arm.dynamics_kdl_active_mapping.size(); ++i) {
+        const auto & map = arm.dynamics_kdl_active_mapping[i];
+        if (map.active_index < 0 ||
+            static_cast<size_t>(map.active_index) >= dynamics_q.size()) {
             return false;
         }
-        q_raw(i) = map.multiplier * active_q[static_cast<size_t>(map.active_index)] + map.offset;
+        q_raw(i) = map.multiplier * dynamics_q[static_cast<size_t>(map.active_index)] + map.offset;
+        qdot_raw(i) = velocity_available ? map.multiplier * dynamics_qdot[static_cast<size_t>(map.active_index)] : 0.0;
     }
 
-    KDL::Frame base_T_tip;
-    if (arm.fk_solver->JntToCart(q_raw, base_T_tip) < 0) {
+    KDL::Frame dynamics_base_T_tip;
+    if (arm.dynamics_fk_solver->JntToCart(q_raw, dynamics_base_T_tip) < 0) {
         return false;
     }
 
-    const KDL::Rotation base_R_sensor = base_T_tip.M * arm.tip_T_sensor.M;
-    const KDL::Vector gravity_base(arm.gravity_vector_in_base[0], arm.gravity_vector_in_base[1], arm.gravity_vector_in_base[2]);
-    const KDL::Vector payload_force_base = gravity_base * arm.payload_mass_kg;
-    const KDL::Vector payload_force_sensor = base_R_sensor.Inverse() * payload_force_base;
-    const KDL::Vector com_sensor(arm.payload_com_in_sensor[0], arm.payload_com_in_sensor[1], arm.payload_com_in_sensor[2]);
-    const KDL::Vector payload_moment_sensor = cross(com_sensor, payload_force_sensor);
+    KDL::Jacobian jac(q_raw.rows());
+    if (velocity_available && (!arm.dynamics_jac_solver || arm.dynamics_jac_solver->JntToJac(q_raw, jac) < 0)) {
+        velocity_available = false;
+    }
 
-    gravity_wrench = {
+    const KDL::Rotation dynamics_base_R_sensor = dynamics_base_T_tip.M * arm.tip_T_sensor.M;
+
+    const KDL::Vector gravity_dynamics_base(arm.gravity_vector_in_base[0], arm.gravity_vector_in_base[1], arm.gravity_vector_in_base[2]);
+    const KDL::Vector payload_force_dynamics_base = gravity_dynamics_base * arm.payload_mass_kg;
+    const KDL::Vector payload_force_sensor = dynamics_base_R_sensor.Inverse() * payload_force_dynamics_base;
+
+    const KDL::Vector com_sensor(arm.payload_com_in_sensor[0], arm.payload_com_in_sensor[1], arm.payload_com_in_sensor[2]);
+    const KDL::Vector payload_moment_sensor =cross(com_sensor, payload_force_sensor);
+
+    Wrench6 gravity_wrench = {
         payload_force_sensor.x(), payload_force_sensor.y(), payload_force_sensor.z(),
         payload_moment_sensor.x(), payload_moment_sensor.y(), payload_moment_sensor.z()
     };
+
+    const KDL::Vector tip_to_com_tip = arm.tip_T_sensor.p + arm.tip_T_sensor.M * com_sensor;
+    const KDL::Vector tip_to_com_dynamics_base = dynamics_base_T_tip.M * tip_to_com_tip;
+    const KDL::Vector com_position_dynamics_base = dynamics_base_T_tip.p + tip_to_com_dynamics_base;
+
+    KDL::Vector com_velocity_dynamics_base(0.0, 0.0, 0.0);
+    KDL::Vector angular_velocity_dynamics_base(0.0, 0.0, 0.0);
+
+    if (velocity_available) {
+        KDL::Vector tip_velocity_dynamics_base(0.0, 0.0, 0.0);
+        for (unsigned int j = 0; j < jac.columns(); ++j) {
+            const double qd = qdot_raw(j);
+            tip_velocity_dynamics_base = tip_velocity_dynamics_base + KDL::Vector(jac(0, j), jac(1, j), jac(2, j)) * qd;
+            angular_velocity_dynamics_base = angular_velocity_dynamics_base + KDL::Vector(jac(3, j), jac(4, j), jac(5, j)) * qd;
+        }
+        com_velocity_dynamics_base = tip_velocity_dynamics_base + cross(angular_velocity_dynamics_base, tip_to_com_dynamics_base);
+    }
+
+    KDL::Vector linear_acceleration_dynamics_base(0.0, 0.0, 0.0);
+    KDL::Vector angular_acceleration_dynamics_base(0.0, 0.0, 0.0);
+    const bool reset_motion = arm.dynamics_state_reset_requested.exchange(false);
+
+    if (reset_motion) {
+        arm.payload_model_filter_initialized = false;
+    }
+
+    if (!arm.motion_state_initialized || reset_motion) {
+        arm.motion_state_initialized = true;
+        arm.motion_prev_stamp = joint_stamp;
+        arm.prev_com_position_base = com_position_dynamics_base;
+        arm.prev_com_velocity_base = com_velocity_dynamics_base;
+        arm.prev_angular_velocity_base = angular_velocity_dynamics_base;
+    } else {
+        const double dt = (joint_stamp - arm.motion_prev_stamp).seconds();
+        if (std::isfinite(dt) &&
+            dt >= arm.dynamics_min_dt &&
+            dt <= arm.dynamics_max_dt) {
+
+            if (velocity_available) {
+                linear_acceleration_dynamics_base = (com_velocity_dynamics_base - arm.prev_com_velocity_base) * (1.0 / dt);
+                angular_acceleration_dynamics_base = (angular_velocity_dynamics_base - arm.prev_angular_velocity_base) * (1.0 / dt);
+            } else {
+                const KDL::Vector estimated_velocity = (com_position_dynamics_base - arm.prev_com_position_base) * (1.0 / dt);
+                linear_acceleration_dynamics_base = (estimated_velocity - arm.prev_com_velocity_base) * (1.0 / dt);
+                com_velocity_dynamics_base = estimated_velocity;
+            }
+
+            linear_acceleration_dynamics_base = clampVectorNorm(linear_acceleration_dynamics_base, arm.max_linear_acceleration);
+            angular_acceleration_dynamics_base = clampVectorNorm(angular_acceleration_dynamics_base, arm.max_angular_acceleration);
+
+            arm.motion_prev_stamp = joint_stamp;
+            arm.prev_com_position_base = com_position_dynamics_base;
+            arm.prev_com_velocity_base = com_velocity_dynamics_base;
+            arm.prev_angular_velocity_base = angular_velocity_dynamics_base;
+        } else if (!std::isfinite(dt) || dt > arm.dynamics_max_dt || dt < 0.0) {
+            arm.motion_prev_stamp = joint_stamp;
+            arm.prev_com_position_base = com_position_dynamics_base;
+            arm.prev_com_velocity_base = com_velocity_dynamics_base;
+            arm.prev_angular_velocity_base = angular_velocity_dynamics_base;
+        }
+    }
+
+    const KDL::Vector inertia_force_dynamics_base = linear_acceleration_dynamics_base * (-arm.payload_mass_kg);
+    const KDL::Vector inertia_force_sensor = dynamics_base_R_sensor.Inverse() * inertia_force_dynamics_base;
+
+    KDL::Vector inertia_moment_sensor = cross(com_sensor, inertia_force_sensor);
+
+    if (arm.payload_inertia_diag_in_sensor.size() == 3) {
+        const KDL::Vector omega_sensor = dynamics_base_R_sensor.Inverse() * angular_velocity_dynamics_base;
+        const KDL::Vector alpha_sensor = dynamics_base_R_sensor.Inverse() * angular_acceleration_dynamics_base;
+
+        const KDL::Vector i_omega(arm.payload_inertia_diag_in_sensor[0] * omega_sensor.x(), arm.payload_inertia_diag_in_sensor[1] * omega_sensor.y(), arm.payload_inertia_diag_in_sensor[2] * omega_sensor.z());
+        const KDL::Vector i_alpha(arm.payload_inertia_diag_in_sensor[0] * alpha_sensor.x(), arm.payload_inertia_diag_in_sensor[1] * alpha_sensor.y(), arm.payload_inertia_diag_in_sensor[2] * alpha_sensor.z());
+
+        inertia_moment_sensor = inertia_moment_sensor - i_alpha - cross(omega_sensor, i_omega);
+    }
+
+    const Wrench6 inertia_wrench = {
+        inertia_force_sensor.x(), inertia_force_sensor.y(), inertia_force_sensor.z(),
+        inertia_moment_sensor.x(), inertia_moment_sensor.y(), inertia_moment_sensor.z()
+    };
+
+    payload_wrench = addWrench(gravity_wrench, inertia_wrench);
     return true;
 }
 
-bool WrenchController::compensatePayloadGravity(
+bool WrenchController::compensatePayloadDynamics(
     ArmContext & arm, const Wrench6 & measured, Wrench6 & compensated) {
     if (arm.payload_mass_kg <= 0.0) {
         compensated = measured;
         return true;
     }
 
-    Wrench6 current_gravity;
-    if (!computeGravityWrenchInSensor(arm, current_gravity)) {
+    Wrench6 current_payload_model;
+    if (!computePayloadModelWrenchInSensor(arm, current_payload_model)) {
         return false;
     }
 
-    if (arm.gravity_reference_pending.exchange(false) || !arm.gravity_reference_valid.load()) {
-        arm.gravity_reference_wrench = current_gravity;
-        arm.gravity_reference_valid.store(true);
+    if (!arm.payload_model_filter_initialized) {
+        arm.filtered_payload_model = current_payload_model;
+        arm.payload_model_filter_initialized = true;
+    } else {
+        const double a = std::clamp(arm.lowpass_alpha, 0.0, 1.0);
+        arm.filtered_payload_model.fx = a * current_payload_model.fx + (1.0 - a) * arm.filtered_payload_model.fx;
+        arm.filtered_payload_model.fy = a * current_payload_model.fy + (1.0 - a) * arm.filtered_payload_model.fy;
+        arm.filtered_payload_model.fz = a * current_payload_model.fz + (1.0 - a) * arm.filtered_payload_model.fz;
+        arm.filtered_payload_model.mx = a * current_payload_model.mx + (1.0 - a) * arm.filtered_payload_model.mx;
+        arm.filtered_payload_model.my = a * current_payload_model.my + (1.0 - a) * arm.filtered_payload_model.my;
+        arm.filtered_payload_model.mz = a * current_payload_model.mz + (1.0 - a) * arm.filtered_payload_model.mz;
+    }
+
+    if (arm.payload_reference_pending.exchange(false) || !arm.payload_reference_valid.load()) {
+        arm.payload_reference_wrench = arm.filtered_payload_model;
+        arm.payload_reference_valid.store(true);
         compensated = measured;
-        RCLCPP_INFO(this->get_logger(), "%s gravity reference captured: F=[%.3f %.3f %.3f] M=[%.3f %.3f %.3f]",
-            arm.side.c_str(), current_gravity.fx, current_gravity.fy, current_gravity.fz,
-            current_gravity.mx, current_gravity.my, current_gravity.mz);
+        RCLCPP_INFO(this->get_logger(), "%s payload dynamics reference captured: F=[%.3f %.3f %.3f] M=[%.3f %.3f %.3f]",
+            arm.side.c_str(), arm.filtered_payload_model.fx, arm.filtered_payload_model.fy, arm.filtered_payload_model.fz,
+            arm.filtered_payload_model.mx, arm.filtered_payload_model.my, arm.filtered_payload_model.mz);
         return true;
     }
 
-    const Wrench6 gravity_change = subtractWrench(current_gravity, arm.gravity_reference_wrench);
-    compensated = subtractWrench(measured, scaleWrench(gravity_change, arm.gravity_compensation_sign));
+    const Wrench6 payload_change = subtractWrench(arm.filtered_payload_model, arm.payload_reference_wrench);
+    compensated = subtractWrench(measured, scaleWrench(payload_change, arm.gravity_compensation_sign));
     return true;
 }
 
@@ -1080,7 +1379,7 @@ bool WrenchController::processArmSample(ArmContext & arm, std::vector<double> & 
     }
 
     Wrench6 compensated;
-    if (!compensatePayloadGravity(arm, arm.filtered, compensated)) {
+    if (!compensatePayloadDynamics(arm, arm.filtered, compensated)) {
         return false;
     }
 
@@ -1088,7 +1387,7 @@ bool WrenchController::processArmSample(ArmContext & arm, std::vector<double> & 
         publishWrenchDebug(arm, arm.filtered, arm.sensor_frame_id);
     }
 
-    if (publish_wrench_debug && arm.compensated_wrench_pub) {
+    if (publish_wrench_debug && arm.dynamics_compensated_wrench_pub) {
         geometry_msgs::msg::WrenchStamped msg;
         msg.header.stamp = now();
         msg.header.frame_id = arm.sensor_frame_id;
@@ -1098,7 +1397,7 @@ bool WrenchController::processArmSample(ArmContext & arm, std::vector<double> & 
         msg.wrench.torque.x = compensated.mx;
         msg.wrench.torque.y = compensated.my;
         msg.wrench.torque.z = compensated.mz;
-        arm.compensated_wrench_pub->publish(msg);
+        arm.dynamics_compensated_wrench_pub->publish(msg);
     }
 
     Wrench6 gated = compensated;
