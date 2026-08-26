@@ -67,10 +67,10 @@ private:
     const float neck_p_lower_limt = -0.3;
     const float neck_r_upper_limt = 0.087;
     const float neck_r_lower_limt = -0.087;
-    const float neck_y_upper_limt = 1.57;
-    const float neck_y_lower_limt = -1.57;
+    const float neck_y_upper_limt = 2.09;
+    const float neck_y_lower_limt = -2.09;
     const float waist_p_upper_limt = 0.68;
-    const float waist_p_lower_limt = -0.16;
+    const float waist_p_lower_limt = 0.0;
     const float waist_r_upper_limt = 0.12;
     const float waist_r_lower_limt = -0.12;
     const float waist_y_upper_limt = 2.09;
