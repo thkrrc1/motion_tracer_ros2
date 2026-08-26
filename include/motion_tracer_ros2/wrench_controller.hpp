@@ -133,20 +133,30 @@ private:
 
         std::atomic<bool> kinematics_ready = false;
 
-        // Collision
-        double force_threshold = 5.0;
-        double torque_threshold = 1.0;
+        // Collision / reflection
+        double force_on_threshold = 5.5;
+        double force_off_threshold = 3.0;
+        double torque_on_threshold = 1.5;
+        double torque_off_threshold = 0.8;
         double force_deadband = 0.3;
         double torque_deadband = 0.05;
         double tau_deadband = 0.1;
         double lowpass_alpha = 0.25;
+
+        int reflection_on_samples = 2; // sample_rate_hz[Hz] * reflection_on_samples = [ms]
+        int reflection_off_samples = 10;
+        bool reflection_active = false;
+        int reflection_on_count = 0;
+        int reflection_off_count = 0;
+        std::atomic<bool> reflection_state_reset_requested = true;
 
         // Current reflection
         std::vector<int64_t> arm_joint_indices;
         std::vector<double> current_signs;
         std::vector<double> current_gains;
         int max_current_delta = 600;
-        double max_delta_rate_per_sec = 6000.0;
+        double current_attack_rate_per_sec = 1500.0;
+        double current_release_rate_per_sec = 1000.0;
         std::vector<double> last_current_delta;
         rclcpp::Time last_current_publish_time;
 
@@ -225,6 +235,7 @@ private:
     bool isProtectedTracerIndex(int tracer_index) const;
     void wrenchLoop();
     bool processArmSample(ArmContext & arm, std::vector<double> & tau_out);
+    void resetReflectionState(ArmContext & arm);
     void resetReflectionDelta(ArmContext & arm);
     void resetAllReflectionDeltas();
     void publishPassThroughOrNeutral();
@@ -234,6 +245,7 @@ private:
     void publishTauDebug(ArmContext & arm, const std::vector<double> & tau, const std::vector<std::string> & names);
     void publishToFLoop();
     void mergeArmCurrent(aero_controller_msgs::msg::Current & msg, ArmContext & arm, const std::vector<double> & tau);
+    void releaseArmCurrent(aero_controller_msgs::msg::Current & msg, ArmContext & arm);
     void fillNeutral(aero_controller_msgs::msg::Current & msg) const;
     int convertCurrentValue(int current_val);
     void setCurrentWord(aero_controller_msgs::msg::Current & msg, int current_index, uint16_t raw) const;

@@ -209,6 +209,10 @@ void WrenchController::jointStateCallback(const sensor_msgs::msg::JointState::Sh
 
 void WrenchController::onForceFeedbackCallback(const std_msgs::msg::Bool & msg) {
     on_force_feedback_.store(msg.data);
+    if (!msg.data) {
+        right_arm_.reflection_state_reset_requested.store(true);
+        left_arm_.reflection_state_reset_requested.store(true);
+    }
 }
 
 void WrenchController::tareCallback(const std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
@@ -222,6 +226,8 @@ void WrenchController::tareCallback(const std::shared_ptr<std_srvs::srv::Trigger
     left_arm_.payload_reference_pending.store(true);
     right_arm_.dynamics_state_reset_requested.store(true);
     left_arm_.dynamics_state_reset_requested.store(true);
+    right_arm_.reflection_state_reset_requested.store(true);
+    left_arm_.reflection_state_reset_requested.store(true);
     res->success = true;
     res->message = "force sensor tare requested.";
 }
@@ -1408,8 +1414,45 @@ bool WrenchController::processArmSample(ArmContext & arm, std::vector<double> & 
     gated.my = applyDeadband(gated.my, arm.torque_deadband);
     gated.mz = applyDeadband(gated.mz, arm.torque_deadband);
 
-    const bool collision = norm3(gated.fx, gated.fy, gated.fz) >= arm.force_threshold || norm3(gated.mx, gated.my, gated.mz) >= arm.torque_threshold;
-    if (!on_force_feedback_.load() || !collision) {
+    if (arm.reflection_state_reset_requested.exchange(false)) {
+        resetReflectionState(arm);
+    }
+
+    if (!on_force_feedback_.load()) {
+        resetReflectionState(arm);
+        return false;
+    }
+
+    const double force_norm = norm3(gated.fx, gated.fy, gated.fz);
+
+    const bool above_on_threshold = force_norm >= arm.force_on_threshold;
+    const bool below_off_threshold = force_norm <= arm.force_off_threshold;
+
+    if (!arm.reflection_active) {
+        arm.reflection_off_count = 0;
+        if (above_on_threshold) {
+            ++arm.reflection_on_count;
+        } else {
+            arm.reflection_on_count = 0;
+        }
+        if (arm.reflection_on_count >= std::max(1, arm.reflection_on_samples)) {
+            arm.reflection_active = true;
+            arm.reflection_on_count = 0;
+        }
+    } else {
+        arm.reflection_on_count = 0;
+        if (below_off_threshold) {
+            ++arm.reflection_off_count;
+        } else {
+            arm.reflection_off_count = 0;
+        }
+        if (arm.reflection_off_count >= std::max(1, arm.reflection_off_samples)) {
+            arm.reflection_active = false;
+            arm.reflection_off_count = 0;
+        }
+    }
+
+    if (!arm.reflection_active) {
         return false;
     }
 
@@ -1421,6 +1464,12 @@ bool WrenchController::processArmSample(ArmContext & arm, std::vector<double> & 
         publishTauDebug(arm, tau_out, arm.active_joint_names);
     }
     return true;
+}
+
+void WrenchController::resetReflectionState(ArmContext & arm) {
+    arm.reflection_active = false;
+    arm.reflection_on_count = 0;
+    arm.reflection_off_count = 0;
 }
 
 void WrenchController::resetReflectionDelta(ArmContext & arm) {
@@ -1455,16 +1504,25 @@ void WrenchController::publishMergedCurrent(const std::vector<double> * right_ta
     auto msg = makeOutputFromBaseOrNeutral();
 
     const bool global_enabled = on_force_feedback_.load();
-    if (global_enabled && right_has_reflection && right_tau != nullptr) {
-        mergeArmCurrent(msg, right_arm_, *right_tau);
-    } else {
-        resetReflectionDelta(right_arm_);
+
+    if (!global_enabled) {
+        resetReflectionState(right_arm_);
+        resetReflectionState(left_arm_);
+        resetAllReflectionDeltas();
+        current_pub_->publish(msg);
+        return;
     }
 
-    if (global_enabled && left_has_reflection && left_tau != nullptr){
+    if (right_has_reflection && right_tau != nullptr) {
+        mergeArmCurrent(msg, right_arm_, *right_tau);
+    } else {
+        releaseArmCurrent(msg, right_arm_);
+    }
+
+    if (left_has_reflection && left_tau != nullptr) {
         mergeArmCurrent(msg, left_arm_, *left_tau);
     } else {
-        resetReflectionDelta(left_arm_);
+        releaseArmCurrent(msg, left_arm_);
     }
     current_pub_->publish(msg);
 }
@@ -1478,12 +1536,13 @@ void WrenchController::mergeArmCurrent(aero_controller_msgs::msg::Current & msg,
     arm.last_current_publish_time = t;
 
     if (tau.size() != arm.arm_joint_indices.size() || tau.size() != arm.current_signs.size() || tau.size() != arm.current_gains.size() || tau.size() != arm.last_current_delta.size()) {
-        RCLCPP_ERROR_THROTTLE( this->get_logger(), *get_clock(), 1000, "%s reflection vector/parameter size mismatch.", arm.side.c_str());
         resetReflectionDelta(arm);
         return;
     }
 
-    const double max_step = std::max(0.0, arm.max_delta_rate_per_sec) * dt;
+    const double attack_step = std::max(0.0, arm.current_attack_rate_per_sec) * dt;
+    const double release_step = std::max(0.0, arm.current_release_rate_per_sec) * dt;
+
     for (size_t axis = 0; axis < tau.size(); ++axis) {
         const int tracer_index = static_cast<int>(arm.arm_joint_indices[axis]);
         if (tracer_index < 0 || tracer_index >= MOTOR_COUNT || isProtectedTracerIndex(tracer_index)) {
@@ -1491,17 +1550,50 @@ void WrenchController::mergeArmCurrent(aero_controller_msgs::msg::Current & msg,
         }
 
         const double tau_i = applyDeadband(tau[axis], arm.tau_deadband);
-        double target_delta = arm.current_signs[axis] * arm.current_gains[axis] * tau_i;
-        target_delta = std::clamp(target_delta, -static_cast<double>(arm.max_current_delta), static_cast<double>(arm.max_current_delta));
 
+        double target_delta = std::abs(arm.current_signs[axis] * arm.current_gains[axis] * tau_i);
+        target_delta = std::clamp(target_delta, 0.0, static_cast<double>(arm.max_current_delta));
+
+        const double previous = std::max(0.0, arm.last_current_delta[axis]);
         double limited_delta = target_delta;
-        if (max_step > 0.0) {
-            const double diff = target_delta - arm.last_current_delta[axis];
-            limited_delta = arm.last_current_delta[axis] + std::clamp(diff, -max_step, max_step);
+
+        if (target_delta > previous && attack_step > 0.0) {
+            limited_delta = std::min(target_delta, previous + attack_step);
+        } else if (target_delta < previous && release_step > 0.0) {
+            limited_delta = std::max(target_delta, previous - release_step);
         }
         arm.last_current_delta[axis] = limited_delta;
 
-        limited_delta = std::abs(limited_delta); //treat as a current value in the positive direction.
+        const int current_count = static_cast<int>(std::llround(limited_delta));
+        const int protocol_current = convertCurrentValue(current_count);
+        setCurrentWord(msg, tracer_index, clampCurrent(protocol_current));
+    }
+}
+
+void WrenchController::releaseArmCurrent( aero_controller_msgs::msg::Current & msg, ArmContext & arm) {
+    const rclcpp::Time t = now();
+    double dt = (t - arm.last_current_publish_time).seconds();
+    if (!(dt > 0.0) || dt > 1.0) {
+        dt = 1.0 / std::max(1.0, sample_rate_hz);
+    }
+    arm.last_current_publish_time = t;
+
+    const double release_step = std::max(0.0, arm.current_release_rate_per_sec) * dt;
+
+    for (size_t axis = 0; axis < arm.arm_joint_indices.size(); ++axis) {
+        const int tracer_index = static_cast<int>(arm.arm_joint_indices[axis]);
+        if (tracer_index < 0 || tracer_index >= MOTOR_COUNT ||
+            isProtectedTracerIndex(tracer_index)) {
+            continue;
+        }
+
+        const double previous = axis < arm.last_current_delta.size() ? std::max(0.0, arm.last_current_delta[axis]) : 0.0;
+        const double limited_delta = release_step > 0.0 ? std::max(0.0, previous - release_step) : 0.0;
+
+        if (axis < arm.last_current_delta.size()) {
+            arm.last_current_delta[axis] = limited_delta;
+        }
+
         const int current_count = static_cast<int>(std::llround(limited_delta));
         const int protocol_current = convertCurrentValue(current_count);
         setCurrentWord(msg, tracer_index, clampCurrent(protocol_current));
