@@ -155,7 +155,7 @@ private:
         std::vector<double> current_signs;
         std::vector<double> current_gains;
         int max_current_delta = 600;
-        double current_attack_rate_per_sec = 1500.0;
+        double current_attack_rate_per_sec = 1200.0;
         double current_release_rate_per_sec = 1000.0;
         std::vector<double> last_current_delta;
         rclcpp::Time last_current_publish_time;

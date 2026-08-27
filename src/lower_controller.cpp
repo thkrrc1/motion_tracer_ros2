@@ -11,6 +11,7 @@ LowerController::LowerController() :
     lifter_traj_pub_ = this->create_publisher<trajectory_msgs::msg::JointTrajectory>("lifter_controller/joint_trajectory", 1);
     cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/mechanum_controller/cmd_vel_teleop_raw", 1);
 
+    follower_joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", rclcpp::SensorDataQoS(), std::bind(&LowerController::followerJointStateCallback, this, std::placeholders::_1));
     joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", teleop_qos, std::bind(&LowerController::getJoy, this, std::placeholders::_1));
     forward_lean_sub_ = this->create_subscription<std_msgs::msg::Bool>("/on_lifter_forward_lean", notify_qos, std::bind(&LowerController::notifyForwardLean, this, std::placeholders::_1));
 
@@ -29,7 +30,42 @@ void LowerController::init_follow_joint_trajectory() {
     lifter_msg.points[0].positions.resize(lifter_msg.joint_names.size());
 }
 
+void LowerController::followerJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
+    if (lifter_state_initialized_) {
+        return;
+    }
+
+    const size_t n = std::min(msg->name.size(), msg->position.size());
+    for (size_t i = 0; i < n; ++i) {
+        if (!std::isfinite(msg->position[i])) {
+            continue;
+        }
+        if (msg->name[i] == "knee_joint" || msg->name[i] == "ankle_joint") {
+            startup_joint_state_[msg->name[i]] = msg->position[i];
+        }
+    }
+
+    const auto knee_it = startup_joint_state_.find("knee_joint");
+    const auto ankle_it = startup_joint_state_.find("ankle_joint");
+    if (knee_it == startup_joint_state_.end() || ankle_it == startup_joint_state_.end() ||
+        !std::isfinite(knee_it->second) || !std::isfinite(ankle_it->second)) {
+        return;
+    }
+
+    joint_angles_["knee_joint"] = knee_it->second;
+    joint_angles_["ankle_joint"] = ankle_it->second;
+
+    constexpr double phase_epsilon = 0.02;
+    is_halfway_angle = (joint_angles_.at("knee_joint") <= knee_lower_limt + phase_epsilon);
+    lifter_state_initialized_ = true;
+
+    sendJointAngles();
+}
+
 void LowerController::sendJointAngles() {
+    if (!lifter_state_initialized_) {
+        return;
+    }
     lifter_msg.points[0].positions = {
         joint_angles_["knee_joint"],
         joint_angles_["ankle_joint"]
@@ -57,25 +93,29 @@ double LowerController::limitRate(double target, double current, double max_acc,
 
 void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
     if ((_data->axes[4] == 1 || _data->buttons[6] == 1) && _data->axes[2] != 0) {
-        if (!is_halfway_angle || !lifter_forward_lean) {
-            joint_angles_["knee_joint"] += (_data->axes[2] * lifter_ratio_);
-            if (joint_angles_["knee_joint"] > knee_upper_limt) {
-                joint_angles_["knee_joint"] = knee_upper_limt;
-            } else if (joint_angles_["knee_joint"] < knee_lower_limt) {
-                joint_angles_["knee_joint"] = knee_lower_limt;
-                is_halfway_angle = true;
+        if (!lifter_state_initialized_) {
+            return;
+        } else {
+            if (!is_halfway_angle || !lifter_forward_lean) {
+                joint_angles_["knee_joint"] += (_data->axes[2] * lifter_ratio_);
+                if (joint_angles_["knee_joint"] > knee_upper_limt) {
+                    joint_angles_["knee_joint"] = knee_upper_limt;
+                } else if (joint_angles_["knee_joint"] < knee_lower_limt) {
+                    joint_angles_["knee_joint"] = knee_lower_limt;
+                    is_halfway_angle = true;
+                }
             }
-        }
-        if (is_halfway_angle || !lifter_forward_lean) {
-            joint_angles_["ankle_joint"] -= (_data->axes[2] * lifter_ratio_);
-            if (joint_angles_["ankle_joint"] > ankle_upper_limt) {
-                joint_angles_["ankle_joint"] = ankle_upper_limt;
-            } else if (joint_angles_["ankle_joint"] < ankle_lower_limt) {
-                joint_angles_["ankle_joint"] = ankle_lower_limt;
-                is_halfway_angle = false;
+            if (is_halfway_angle || !lifter_forward_lean) {
+                joint_angles_["ankle_joint"] -= (_data->axes[2] * lifter_ratio_);
+                if (joint_angles_["ankle_joint"] > ankle_upper_limt) {
+                    joint_angles_["ankle_joint"] = ankle_upper_limt;
+                } else if (joint_angles_["ankle_joint"] < ankle_lower_limt) {
+                    joint_angles_["ankle_joint"] = ankle_lower_limt;
+                    is_halfway_angle = false;
+                }
             }
+            sendJointAngles();
         }
-        sendJointAngles();
     }
 
     if ((_data->axes[4] == 1 || _data->buttons[6] == 1)){
@@ -89,7 +129,7 @@ void LowerController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
         double target_wz = 0.0;
 
         if (std::abs(_data->axes[1]) > 0.05) {
-            target_vx = 0.6 * _data->axes[1];;
+            target_vx = 0.6 * _data->axes[1];
         }
         if (std::abs(_data->axes[3]) > 0.05) {
             target_vy = 0.5 * _data->axes[3];

@@ -4,6 +4,9 @@
 #include <iostream>
 #include <cmath>
 #include <map>
+#include <array>
+#include <algorithm>
+#include <mutex>
 #include <math.h>
 
 #include <rclcpp/rclcpp.hpp>
@@ -25,6 +28,7 @@ public:
     void init_follow_joint_trajectory();
     void graspControl(std::string position, std::string _pose);
     void tracerStateCallback(const sensor_msgs::msg::JointState& _tracer_data);
+    void followerJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
     void sendJointAngles();
     void getJoy(const sensor_msgs::msg::Joy::SharedPtr msg);
     double calcHandAngle(double _position, double offset);
@@ -33,6 +37,7 @@ private:
     std::mutex msg_mtx;
 
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr tracer_state_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr follower_joint_state_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
 
     trajectory_msgs::msg::JointTrajectory rarm_msg;
@@ -52,6 +57,9 @@ private:
     rclcpp::Client<aero_controller_msgs::srv::RunScript>::SharedPtr grasp_client_;
 
     std::map<std::string, double> joint_angles_;
+    std::map<std::string, double> startup_joint_state_;
+
+    bool body_state_initialized_ = false;
 
     int controller_rate_;     // [Hz]
     double controller_cycle_; // [sec]

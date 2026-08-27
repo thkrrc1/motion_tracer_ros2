@@ -1,9 +1,12 @@
 #ifndef LOWER_CONTROLLER_HPP_
-#define LOEWR_CONTROLLER_HPP_
+#define LOWER_CONTROLLER_HPP_
 
 #include <iostream>
 #include <math.h>
 #include <fstream>  //iostream file
+#include <map>
+#include <algorithm>
+#include <cmath>
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
@@ -25,16 +28,20 @@ public:
     void init_follow_joint_trajectory();
     void sendJointAngles();
     void getJoy(const sensor_msgs::msg::Joy::SharedPtr msg);
+    void followerJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
     double limitRate(double target, double current, double max_acc, double max_decel, double dt);
 
 private:
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr follower_joint_state_sub_;
 
     trajectory_msgs::msg::JointTrajectory lifter_msg;
 
     rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr lifter_traj_pub_;
 
     std::map<std::string, double> joint_angles_;
+    std::map<std::string, double> startup_joint_state_;
+    bool lifter_state_initialized_ = false;
 
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
     geometry_msgs::msg::Twist cmd_vel_;

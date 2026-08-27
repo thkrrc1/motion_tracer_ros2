@@ -17,6 +17,7 @@ UpperController::UpperController() :
     auto teleop_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
 
     tracer_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/tracer_states", teleop_qos, std::bind(&UpperController::tracerStateCallback, this, std::placeholders::_1));
+    follower_joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", rclcpp::SensorDataQoS(), std::bind(&UpperController::followerJointStateCallback, this, std::placeholders::_1));
     joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>("tracer_joy", teleop_qos, std::bind(&UpperController::getJoy, this, std::placeholders::_1));
 
     grasp_client_ = this->create_client<aero_controller_msgs::srv::RunScript>("/aero_controller/run_script");
@@ -129,6 +130,55 @@ void UpperController::graspControl(std::string _position, std::string _pose) {
     }
 }
 
+void UpperController::followerJointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
+    if (body_state_initialized_) {
+        return;
+    }
+
+    static const std::array<std::string, 6> required_joints = {
+        "waist_y_joint", "waist_p_joint", "waist_r_joint",
+        "neck_y_joint", "neck_p_joint", "neck_r_joint"
+    };
+
+    const size_t n = std::min(msg->name.size(), msg->position.size());
+    for (size_t i = 0; i < n; ++i) {
+        if (!std::isfinite(msg->position[i])) {
+            continue;
+        }
+        if (std::find(required_joints.begin(), required_joints.end(), msg->name[i]) != required_joints.end()) {
+            startup_joint_state_[msg->name[i]] = msg->position[i];
+        }
+    }
+
+    for (const auto & name : required_joints) {
+        const auto it = startup_joint_state_.find(name);
+        if (it == startup_joint_state_.end() || !std::isfinite(it->second)) {
+            return;
+        }
+    }
+
+    for (const auto & name : required_joints) {
+        joint_angles_[name] = startup_joint_state_.at(name);
+    }
+    body_state_initialized_ = true;
+
+    waist_msg.points[0].positions = {
+        joint_angles_["waist_y_joint"],
+        joint_angles_["waist_p_joint"],
+        joint_angles_["waist_r_joint"]
+    };
+    waist_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    head_msg.points[0].positions = {
+        joint_angles_["neck_y_joint"],
+        joint_angles_["neck_p_joint"],
+        joint_angles_["neck_r_joint"]
+    };
+    head_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+
+    waist_traj_pub_->publish(waist_msg);
+    head_traj_pub_->publish(head_msg);
+}
+
 void UpperController::tracerStateCallback(const sensor_msgs::msg::JointState& _tracer_data) {
     joint_angles_["r_shoulder_p_joint"] = _tracer_data.position[1] / 10.0 * deg2Rad * -1.0;
     joint_angles_["r_shoulder_r_joint"] = (_tracer_data.position[2] / 10.0 - 10) * deg2Rad * -1.0;
@@ -179,19 +229,21 @@ void UpperController::sendJointAngles() {
     };
     larm_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
 
-    waist_msg.points[0].positions = {
-        joint_angles_["waist_y_joint"],
-        joint_angles_["waist_p_joint"],
-        joint_angles_["waist_r_joint"]   
-    };
-    waist_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    if (body_state_initialized_) {
+        waist_msg.points[0].positions = {
+            joint_angles_["waist_y_joint"],
+            joint_angles_["waist_p_joint"],
+            joint_angles_["waist_r_joint"]
+        };
+        waist_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
 
-    head_msg.points[0].positions = {
-        joint_angles_["neck_y_joint"],
-        joint_angles_["neck_p_joint"],
-        joint_angles_["neck_r_joint"]
-    };
-    head_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+        head_msg.points[0].positions = {
+            joint_angles_["neck_y_joint"],
+            joint_angles_["neck_p_joint"],
+            joint_angles_["neck_r_joint"]
+        };
+        head_msg.points[0].time_from_start = rclcpp::Duration::from_seconds(controller_cycle_);
+    }
 
     rhand_msg.points[0].positions = {
         joint_angles_["r_thumb_joint"]
@@ -209,8 +261,12 @@ void UpperController::sendJointAngles() {
     if (send_angle_l_arm) {
         larm_traj_pub_->publish(larm_msg);
     }
-    waist_traj_pub_->publish(waist_msg);
-    head_traj_pub_->publish(head_msg);
+
+    if (body_state_initialized_) {
+        waist_traj_pub_->publish(waist_msg);
+        head_traj_pub_->publish(head_msg);
+    }
+
     if (send_angle_r_hand) {
         rhand_traj_pub_->publish(rhand_msg);
     }
@@ -222,6 +278,13 @@ void UpperController::sendJointAngles() {
 void UpperController::getJoy(const sensor_msgs::msg::Joy::SharedPtr _data) {
     double look_right = 0;
     double look_left = 0;
+
+    if (!body_state_initialized_) {
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 2000,
+            "Waiting for valid follower waist/neck positions on /joint_states; body commands are inhibited.");
+        return;
+    }
 
     //If you don't want to look at hand, you should comment out below.
     look_right = -joint_angles_["r_shoulder_r_joint"] - joint_angles_["r_shoulder_y_joint"];
