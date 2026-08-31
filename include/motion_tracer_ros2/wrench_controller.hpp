@@ -88,7 +88,7 @@ private:
 
         double payload_mass_kg = 0.82 + 0.25; // hand unit[kg] + force sensor[kg]
         std::vector<double> payload_com_in_sensor = {0.0, 0.0, 0.063}; // the center of gravity vector of the hand unit as seen from the force sensor coordinate system
-        std::vector<double> payload_inertia_diag_in_sensor = {0.0, 0.0, 0.0}; // the payload rotational inertia of the center of gravityas seen from the force sensor coordinate system
+        std::vector<double> payload_inertia_diag_in_sensor = {0.011, 0.011, 0.002}; // the payload rotational inertia of the center of gravityas seen from the force sensor coordinate system
         std::vector<double> gravity_vector_in_base = {0.0, 0.0, -9.80665};
         double gravity_compensation_sign = 1.0;
         Wrench6 payload_reference_wrench;
@@ -141,7 +141,7 @@ private:
         double force_deadband = 0.3;
         double torque_deadband = 0.05;
         double tau_deadband = 0.1;
-        double lowpass_alpha = 0.25;
+        double lowpass_alpha = 0.30;
 
         int reflection_on_samples = 2; // sample_rate_hz[Hz] * reflection_on_samples = [ms]
         int reflection_off_samples = 10;
@@ -155,8 +155,8 @@ private:
         std::vector<double> current_signs;
         std::vector<double> current_gains;
         int max_current_delta = 600;
-        double current_attack_rate_per_sec = 1200.0;
-        double current_release_rate_per_sec = 1000.0;
+        double current_attack_rate_per_sec = 4000.0;
+        double current_release_rate_per_sec = 2500.0;
         std::vector<double> last_current_delta;
         rclcpp::Time last_current_publish_time;
 
